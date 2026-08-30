@@ -9,6 +9,9 @@
 <meta name="apple-mobile-web-app-title" content="Financial" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="theme-color" content="#F9FAFB" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
@@ -26,6 +29,13 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    });
+  }
+</script>
 
 <script>
 var __defProp = Object.defineProperty;
@@ -570,7 +580,7 @@ function HomeScreen({ races, expenses, onOpenRace, onQuickAdd }) {
 }
 function ExpenseRow({ expense }) {
   const cat = CAT_MAP[expense.category];
-  return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-lg", style: { backgroundColor: cat.color + "1A" } }, cat.emoji), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate" }, expense.vendor || cat.label), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
+  return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-lg", style: { backgroundColor: cat.color + "1A" } }, cat.emoji), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate flex items-center gap-1.5" }, expense.vendor || cat.label, expense.paidFrom === "personal" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded shrink-0" }, "Osobn\xE9")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
 }
 function CalendarScreen({ races, isCoordinator, onOpenRace, onAddRace }) {
   const t = todayISO();
@@ -588,26 +598,31 @@ function RaceRow({ race, onClick }) {
   const status = raceStatus(race);
   return /* @__PURE__ */ React.createElement("button", { onClick, className: "w-full text-left bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-base truncate" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 flex items-center gap-1 mt-0.5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDateShort(race.startDate), " \u2013 ", fmtDateShort(race.endDate))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 shrink-0" }, status === "prebieha" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold uppercase text-red-600 bg-red-50 px-2 py-1 rounded-full" }, "Live"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")));
 }
-async function buildReceiptsPdf(race, expenses) {
+async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = 210, pageH = 297, margin = 15;
+  const raceName = (raceId) => {
+    var _a;
+    return ((_a = races.find((r) => r.id === raceId)) == null ? void 0 : _a.name) || "-";
+  };
   doc.setFontSize(20);
   doc.text("CTM Racing Team - Financial", margin, 30);
   doc.setFontSize(16);
-  doc.text(race.name, margin, 42);
+  doc.text(title, margin, 42);
   doc.setFontSize(11);
   doc.setTextColor(100);
-  doc.text(`${race.location} \xB7 ${fmtDate(race.startDate)} \u2013 ${fmtDate(race.endDate)}`, margin, 50);
+  doc.text(subtitle, margin, 50);
   const total = expenses.reduce((s, e) => s + e.amountEUR, 0);
   doc.setFontSize(14);
   doc.setTextColor(0);
   doc.text(`Celkom: ${fmtEUR(total)}`, margin, 62);
   let y = 75;
-  doc.setFontSize(10);
-  for (const e of expenses) {
+  doc.setFontSize(9);
+  const sorted = expenses.slice().sort((a, b) => a.date.localeCompare(b.date));
+  for (const e of sorted) {
     const cat = CAT_MAP[e.category];
-    const line = `${fmtDateShort(e.date)}  \xB7  ${cat.label}  \xB7  ${e.vendor || "-"}  \xB7  ${e.addedBy}  \xB7  ${fmtMoney(e.amount, e.currency)}`;
+    const line = races.length > 1 ? `${fmtDateShort(e.date)}  \xB7  ${raceName(e.raceId)}  \xB7  ${cat.label}  \xB7  ${e.vendor || "-"}  \xB7  ${e.addedBy}  \xB7  ${fmtMoney(e.amount, e.currency)}` : `${fmtDateShort(e.date)}  \xB7  ${cat.label}  \xB7  ${e.vendor || "-"}  \xB7  ${e.addedBy}  \xB7  ${fmtMoney(e.amount, e.currency)}`;
     if (y > pageH - margin) {
       doc.addPage();
       y = margin;
@@ -615,7 +630,7 @@ async function buildReceiptsPdf(race, expenses) {
     doc.text(line, margin, y);
     y += 6;
   }
-  for (const e of expenses) {
+  for (const e of sorted) {
     let img = null;
     try {
       img = await kvGet("ctm-receipt:" + e.id);
@@ -625,7 +640,8 @@ async function buildReceiptsPdf(race, expenses) {
     doc.addPage();
     const cat = CAT_MAP[e.category];
     doc.setFontSize(12);
-    doc.text(`${cat.label} \xB7 ${fmtMoney(e.amount, e.currency)} \xB7 ${fmtDate(e.date)} \xB7 ${e.addedBy}`, margin, 15);
+    const header = races.length > 1 ? `${raceName(e.raceId)} \xB7 ${cat.label} \xB7 ${fmtMoney(e.amount, e.currency)} \xB7 ${fmtDate(e.date)} \xB7 ${e.addedBy}` : `${cat.label} \xB7 ${fmtMoney(e.amount, e.currency)} \xB7 ${fmtDate(e.date)} \xB7 ${e.addedBy}`;
+    doc.text(header, margin, 15);
     try {
       const props = doc.getImageProperties(img);
       const maxW = pageW - margin * 2, maxH = pageH - 30;
@@ -638,7 +654,7 @@ async function buildReceiptsPdf(race, expenses) {
     } catch (err) {
     }
   }
-  doc.save(`${race.name.replace(/[^a-z0-9]+/gi, "-")}-blocky.pdf`);
+  doc.save(filename);
 }
 function exportExpensesToExcel(expenses, races, filename) {
   const rows = expenses.map((e) => {
@@ -651,6 +667,7 @@ function exportExpensesToExcel(expenses, races, filename) {
       Suma: e.amount,
       Mena: e.currency,
       "Suma (EUR)": e.amountEUR,
+      "Platen\xE9 z": e.paidFrom === "personal" ? "Osobn\xE9" : "T\xEDmov\xE9",
       Obchod: e.vendor || "",
       "Pridal(a)": e.addedBy,
       Pozn\u00E1mka: e.note || ""
@@ -664,15 +681,23 @@ function exportExpensesToExcel(expenses, races, filename) {
 function RaceDetail({ race, expenses, races, currentUser, isCoordinator, onBack, onDeleteExpense, onEditExpense, onAddExpense, onDeleteRace }) {
   const [exporting, setExporting] = useState(false);
   const total = expenses.reduce((s, e) => s + e.amountEUR, 0);
+  const teamTotal = expenses.filter((e) => e.paidFrom !== "personal").reduce((s, e) => s + e.amountEUR, 0);
+  const personalTotal = total - teamTotal;
   const byCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: expenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-2xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-4" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-3" }, "\u{1F4F7} Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-2xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-1" }, fmtEUR(total)), personalTotal > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-4" }, "T\xEDmov\xE9: ", fmtEUR(teamTotal), " \xB7 Osobn\xE9: ", fmtEUR(personalTotal)), personalTotal === 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-3" }, "\u{1F4F7} Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: exporting || expenses.length === 0,
       onClick: async () => {
         setExporting(true);
         try {
-          await buildReceiptsPdf(race, expenses);
+          await buildReceiptsPdf(
+            race.name,
+            `${race.location} \xB7 ${fmtDate(race.startDate)} \u2013 ${fmtDate(race.endDate)}`,
+            expenses,
+            [race],
+            `${race.name.replace(/[^a-z0-9]+/gi, "-")}-blocky.pdf`
+          );
         } catch (err) {
           alert("Export sa nepodaril: " + err.message);
         }
@@ -751,6 +776,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
   const [date, setDate] = useState(isEditing ? editingExpense.date : t);
   const [vendor, setVendor] = useState(isEditing ? editingExpense.vendor || "" : "");
   const [category, setCategory] = useState(isEditing ? editingExpense.category : "phm");
+  const [paidFrom, setPaidFrom] = useState(isEditing ? editingExpense.paidFrom || "team" : "team");
   const [raceId, setRaceId] = useState(isEditing ? editingExpense.raceId : fallbackRaceId);
   const [note, setNote] = useState(isEditing ? editingExpense.note || "" : "");
   const [saving, setSaving] = useState(false);
@@ -797,6 +823,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
       category,
       amount: amt,
       currency,
+      paidFrom,
       amountEUR: Math.round(amt * (RATES_TO_EUR[currency] || 1) * 100) / 100,
       date,
       vendor: vendor.trim(),
@@ -822,9 +849,11 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
   }, className: "absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 w-7 h-7 flex items-center justify-center" }, "\u2715"), ocrState === "loading" && /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center gap-2 text-white text-sm font-medium" }, "\u23F3 Rozpozn\xE1vam blo\u010Dek...")), ocrState === "error" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-amber-600 text-xs bg-amber-50 rounded-lg px-3 py-2 mb-4" }, "\u26A0\uFE0F Nepodarilo sa rozpozna\u0165 \xFAdaje, zadaj ich ru\u010Dne."), ocrState === "done" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-green-600 text-xs bg-green-50 rounded-lg px-3 py-2 mb-4" }, "\u2713 \xDAdaje rozpoznan\xE9, skontroluj ich."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Suma" }, /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "0.00", className: "input mono" })), /* @__PURE__ */ React.createElement(Field, { label: "Mena" }, /* @__PURE__ */ React.createElement("select", { value: currency, onChange: (e) => setCurrency(e.target.value), className: "input" }, CURRENCIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))))), /* @__PURE__ */ React.createElement(Field, { label: "D\xE1tum" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Obchod / dod\xE1vate\u013E (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: vendor, onChange: (e) => setVendor(e.target.value), placeholder: "napr. Shell", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Kateg\xF3ria" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, CATEGORIES.map((c) => {
     const active = category === c.id;
     return /* @__PURE__ */ React.createElement("button", { key: c.id, onClick: () => setCategory(c.id), className: `flex flex-col items-center gap-1 rounded-xl py-2.5 border text-xs font-medium ${active ? "border-transparent text-white" : "border-gray-200 text-gray-600"}`, style: active ? { backgroundColor: c.color } : {} }, /* @__PURE__ */ React.createElement("span", { className: "text-base" }, c.emoji), c.label);
-  }))), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
+  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
 }
 function StatsScreen({ races, expenses }) {
+  const [exportingYear, setExportingYear] = useState(false);
+  const [exportingAll, setExportingAll] = useState(false);
   const years = useMemo(() => {
     const s = new Set(races.map((r) => r.startDate.slice(0, 4)));
     if (s.size === 0) s.add(String((/* @__PURE__ */ new Date()).getFullYear()));
@@ -845,15 +874,55 @@ function StatsScreen({ races, expenses }) {
     return part;
   });
   const donutStyle = byCategory.length ? { background: `conic-gradient(${gradientParts.join(",")})` } : { background: "#E5E7EB" };
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5 overflow-x-auto" }, years.map((y) => /* @__PURE__ */ React.createElement("button", { key: y, onClick: () => setYear(y), className: `px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap ${y === year ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-500"}` }, y))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Celkov\xFD cashflow ", year), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-3" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-xs text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement("span", null, raceCount, " pretekov"), /* @__PURE__ */ React.createElement("span", null, yearExpenses.length, " blo\u010Dkov")), /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5 overflow-x-auto" }, years.map((y) => /* @__PURE__ */ React.createElement("button", { key: y, onClick: () => setYear(y), className: `px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap ${y === year ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-500"}` }, y))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Celkov\xFD cashflow ", year), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-3" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-xs text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement("span", null, raceCount, " pretekov"), /* @__PURE__ */ React.createElement("span", null, yearExpenses.length, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: yearExpenses.length === 0 || exportingYear,
+      onClick: async () => {
+        setExportingYear(true);
+        try {
+          await buildReceiptsPdf(`CTM Racing Team \u2013 ${year}`, `${raceCount} pretekov \xB7 ${yearExpenses.length} blo\u010Dkov`, yearExpenses, races.filter((r) => r.startDate.startsWith(year)), `CTM-${year}-blocky.pdf`);
+        } catch (err) {
+          alert("Export sa nepodaril: " + err.message);
+        }
+        setExportingYear(false);
+      },
+      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
+    },
+    exportingYear ? "Generujem..." : "PDF za rok"
+  ), /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: yearExpenses.length === 0,
       onClick: () => exportExpensesToExcel(yearExpenses, races, `CTM-${year}-vydavky.xlsx`),
-      className: "w-full border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
+      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
     },
-    "Stiahnu\u0165 cel\xFD rok ako Excel"
-  )), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"));
+    "Excel za rok"
+  ))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Cel\xE1 hist\xF3ria (", races.length, " pretekov)"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: expenses.length === 0 || exportingAll,
+      onClick: async () => {
+        setExportingAll(true);
+        try {
+          await buildReceiptsPdf("CTM Racing Team \u2013 Cel\xE1 hist\xF3ria", `${races.length} pretekov \xB7 ${expenses.length} blo\u010Dkov`, expenses, races, "CTM-Racing-Team-celkovo.pdf");
+        } catch (err) {
+          alert("Export sa nepodaril: " + err.message);
+        }
+        setExportingAll(false);
+      },
+      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
+    },
+    exportingAll ? "Generujem..." : "PDF celkovo"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: expenses.length === 0,
+      onClick: () => exportExpensesToExcel(expenses, races, "CTM-Racing-Team-celkovo.xlsx"),
+      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
+    },
+    "Excel celkovo"
+  ))), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
 
