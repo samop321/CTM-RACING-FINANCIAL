@@ -15,6 +15,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   body { font-family: 'Inter', system-ui, sans-serif; background:#F7F7F5; }
   .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace; }
@@ -176,22 +177,89 @@ async function kvDelete(key) {
   });
   return res.ok;
 }
+function readQueue() {
+  try {
+    return JSON.parse(localStorage.getItem("ctm-sync-queue") || "{}");
+  } catch (e) {
+    return {};
+  }
+}
+function writeQueue(q) {
+  try {
+    localStorage.setItem("ctm-sync-queue", JSON.stringify(q));
+  } catch (e) {
+  }
+}
+function queueLength() {
+  return Object.keys(readQueue()).length;
+}
+async function flushSyncQueue() {
+  const q = readQueue();
+  const keys = Object.keys(q);
+  for (const key of keys) {
+    try {
+      await kvSet(key, q[key]);
+      delete q[key];
+      writeQueue(q);
+    } catch (e) {
+      break;
+    }
+  }
+  return queueLength();
+}
 async function loadShared(key, fallback) {
   try {
     const v = await kvGet(key);
-    return v !== null && v !== void 0 ? v : fallback;
+    const result = v !== null && v !== void 0 ? v : fallback;
+    try {
+      localStorage.setItem("ctm-cache:" + key, JSON.stringify(result));
+    } catch (e) {
+    }
+    return result;
   } catch (e) {
-    console.warn("load failed", key, e);
+    console.warn("load failed, trying local cache", key, e);
+    try {
+      const cached = localStorage.getItem("ctm-cache:" + key);
+      if (cached !== null) return JSON.parse(cached);
+    } catch (e2) {
+    }
     return fallback;
   }
 }
 async function saveShared(key, value) {
   try {
     await kvSet(key, value);
-    return true;
+    try {
+      localStorage.setItem("ctm-cache:" + key, JSON.stringify(value));
+    } catch (e) {
+    }
+    const q = readQueue();
+    if (q[key]) {
+      delete q[key];
+      writeQueue(q);
+    }
+    return { ok: true, queued: false };
   } catch (e) {
-    console.error("save failed", key, e);
-    return false;
+    console.warn("save failed, queueing for later", key, e);
+    const q = readQueue();
+    q[key] = value;
+    writeQueue(q);
+    try {
+      localStorage.setItem("ctm-cache:" + key, JSON.stringify(value));
+    } catch (e2) {
+    }
+    return { ok: true, queued: true };
+  }
+}
+async function resilientKvSet(key, value) {
+  try {
+    await kvSet(key, value);
+    return { ok: true, queued: false };
+  } catch (e) {
+    const q = readQueue();
+    q[key] = value;
+    writeQueue(q);
+    return { ok: true, queued: true };
   }
 }
 function App() {
@@ -209,6 +277,34 @@ function App() {
   const [prefillRaceId, setPrefillRaceId] = useState(null);
   const [toast, setToast] = useState(null);
   const isCoordinator = COORDINATORS.includes(currentUser);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+  const refreshQueueCount = useCallback(() => setPendingCount(queueLength()), []);
+  useEffect(() => {
+    const goOnline = async () => {
+      setIsOnline(true);
+      await flushSyncQueue();
+      refreshQueueCount();
+      refreshAll();
+    };
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const interval = setInterval(async () => {
+      if (navigator.onLine) {
+        await flushSyncQueue();
+        refreshQueueCount();
+      }
+    }, 2e4);
+    refreshQueueCount();
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      clearInterval(interval);
+    };
+  }, [refreshQueueCount]);
   useEffect(() => {
     (async () => {
       const loadedPins = await loadShared("ctm-pins", {});
@@ -257,8 +353,9 @@ function App() {
   const addRace = async (race) => {
     const next = [...races, __spreadProps(__spreadValues({}, race), { id: uid() })].sort((a, b) => a.startDate.localeCompare(b.startDate));
     setRaces(next);
-    const ok = await saveShared("ctm-races", next);
-    showToast(ok ? "Pretek pridan\xFD" : "Chyba pri ukladan\xED");
+    const r = await saveShared("ctm-races", next);
+    showToast(r.queued ? "Pretek ulo\u017Een\xFD (offline, zosynchronizuje sa)" : "Pretek pridan\xFD");
+    refreshQueueCount();
     setShowAddRace(false);
   };
   const deleteRace = async (id) => {
@@ -268,14 +365,23 @@ function App() {
     setExpenses(nextExp);
     await saveShared("ctm-races", next);
     await saveShared("ctm-expenses", nextExp);
+    refreshQueueCount();
     setOpenRaceId(null);
     showToast("Pretek zmazan\xFD");
   };
   const addExpense = async (expense) => {
     const next = [...expenses, expense];
     setExpenses(next);
-    const ok = await saveShared("ctm-expenses", next);
-    showToast(ok ? "Blo\u010Dek ulo\u017Een\xFD" : "Chyba pri ukladan\xED blo\u010Dku");
+    const r = await saveShared("ctm-expenses", next);
+    showToast(r.queued ? "Blo\u010Dek ulo\u017Een\xFD (offline, zosynchronizuje sa)" : "Blo\u010Dek ulo\u017Een\xFD");
+    refreshQueueCount();
+  };
+  const updateExpense = async (expense) => {
+    const next = expenses.map((e) => e.id === expense.id ? expense : e);
+    setExpenses(next);
+    const r = await saveShared("ctm-expenses", next);
+    showToast(r.queued ? "Zmeny ulo\u017Een\xE9 (offline, zosynchronizuje sa)" : "Zmeny ulo\u017Een\xE9");
+    refreshQueueCount();
   };
   const deleteExpense = async (id) => {
     const next = expenses.filter((e) => e.id !== id);
@@ -285,6 +391,7 @@ function App() {
       await kvDelete("ctm-receipt:" + id);
     } catch (e) {
     }
+    refreshQueueCount();
     showToast("Blo\u010Dek zmazan\xFD");
   };
   if (!booted || pins === null) return /* @__PURE__ */ React.createElement(CenterSpinner, null);
@@ -312,15 +419,20 @@ function App() {
     return /* @__PURE__ */ React.createElement(LoginScreen, { onSelectName: setPendingName });
   }
   const openRace = races.find((r) => r.id === openRaceId);
-  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 text-gray-900 flex flex-col" }, /* @__PURE__ */ React.createElement("header", { className: "bg-white border-b border-gray-200 px-5 pb-3 flex items-center justify-between sticky top-0 z-30", style: { paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold -mt-0.5" }, "Financial")), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, className: "flex items-center gap-1.5 text-xs text-gray-500 px-2 py-1.5 rounded-lg hover:bg-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, currentUser), " \u23FB")), /* @__PURE__ */ React.createElement("main", { className: "flex-1 overflow-y-auto pb-24 max-w-md w-full mx-auto" }, loading ? /* @__PURE__ */ React.createElement(CenterSpinner, null) : openRace ? /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 text-gray-900 flex flex-col" }, /* @__PURE__ */ React.createElement("header", { className: "bg-white border-b border-gray-200 px-5 pb-3 flex items-center justify-between sticky top-0 z-30", style: { paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold -mt-0.5" }, "Financial")), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, className: "flex items-center gap-1.5 text-xs text-gray-500 px-2 py-1.5 rounded-lg hover:bg-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, currentUser), " \u23FB")), (!isOnline || pendingCount > 0) && /* @__PURE__ */ React.createElement("div", { className: `text-center text-xs py-1.5 ${!isOnline ? "bg-gray-800 text-white" : "bg-amber-100 text-amber-800"}` }, !isOnline ? "Offline re\u017Eim \u2013 zmeny sa ulo\u017Eia po pripojen\xED" : `Synchronizujem ${pendingCount} zmien...`), /* @__PURE__ */ React.createElement("main", { className: "flex-1 overflow-y-auto pb-24 max-w-md w-full mx-auto" }, loading ? /* @__PURE__ */ React.createElement(CenterSpinner, null) : openRace ? /* @__PURE__ */ React.createElement(
     RaceDetail,
     {
       race: openRace,
       expenses: expenses.filter((e) => e.raceId === openRace.id),
+      races,
       currentUser,
       isCoordinator,
       onBack: () => setOpenRaceId(null),
       onDeleteExpense: deleteExpense,
+      onEditExpense: (exp) => {
+        setEditingExpense(exp);
+        setShowEditModal(true);
+      },
       onAddExpense: () => {
         setPrefillRaceId(openRace.id);
         setShowAddExpense(true);
@@ -350,14 +462,34 @@ function App() {
         setShowAddExpense(false);
       }
     }
+  ), showEditModal && editingExpense && /* @__PURE__ */ React.createElement(
+    AddExpenseModal,
+    {
+      races,
+      defaultRaceId: editingExpense.raceId,
+      currentUser,
+      editingExpense,
+      onClose: () => {
+        setShowEditModal(false);
+        setEditingExpense(null);
+      },
+      onSave: async (expense) => {
+        await updateExpense(expense);
+        setShowEditModal(false);
+        setEditingExpense(null);
+      }
+    }
   ), showAddRace && /* @__PURE__ */ React.createElement(AddRaceModal, { onClose: () => setShowAddRace(false), onSave: addRace }), toast && /* @__PURE__ */ React.createElement("div", { className: "fixed bottom-24 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50" }, toast));
 }
 function CenterSpinner() {
   return /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center h-64" }, /* @__PURE__ */ React.createElement("div", { className: "w-7 h-7 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" }));
 }
+const NavIconHome = () => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M3 11.5 12 4l9 7.5" }), /* @__PURE__ */ React.createElement("path", { d: "M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9" }));
+const NavIconCalendar = () => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("rect", { x: "3.5", y: "5", width: "17", height: "16", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M8 3v4M16 3v4M3.5 10h17" }));
+const NavIconStats = () => /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: "M5 20V11M12 20V4M19 20v-7" }));
 function BottomNav({ tab, setTab }) {
-  const items = [{ id: "home", label: "Domov", icon: "\u{1F3E0}" }, { id: "calendar", label: "Kalend\xE1r", icon: "\u{1F4C5}" }, { id: "stats", label: "\u0160tatistiky", icon: "\u{1F4CA}" }];
-  return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30", style: { paddingBottom: "env(safe-area-inset-bottom)" } }, /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto grid grid-cols-3" }, items.map(({ id, label, icon }) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setTab(id), className: `flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${tab === id ? "text-violet-600" : "text-gray-400"}` }, /* @__PURE__ */ React.createElement("span", { className: "text-lg leading-none" }, icon), label))));
+  const items = [{ id: "home", label: "Domov", Icon: NavIconHome }, { id: "calendar", label: "Kalend\xE1r", Icon: NavIconCalendar }, { id: "stats", label: "\u0160tatistiky", Icon: NavIconStats }];
+  return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30", style: { paddingBottom: "env(safe-area-inset-bottom)" } }, /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto grid grid-cols-3" }, items.map(({ id, label, Icon }) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setTab(id), className: `flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${tab === id ? "text-violet-600" : "text-gray-400"}` }, /* @__PURE__ */ React.createElement(Icon, null), label))));
 }
 function LoginScreen({ onSelectName }) {
   return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-8" }, "Financial"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Koordin\xE1tori"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, COORDINATORS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-violet-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")))), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Jazdci"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, RIDERS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-violet-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))))));
@@ -508,11 +640,32 @@ async function buildReceiptsPdf(race, expenses) {
   }
   doc.save(`${race.name.replace(/[^a-z0-9]+/gi, "-")}-blocky.pdf`);
 }
-function RaceDetail({ race, expenses, currentUser, isCoordinator, onBack, onDeleteExpense, onAddExpense, onDeleteRace }) {
+function exportExpensesToExcel(expenses, races, filename) {
+  const rows = expenses.map((e) => {
+    const race = races.find((r) => r.id === e.raceId);
+    const cat = CAT_MAP[e.category];
+    return {
+      D\u00E1tum: e.date,
+      Pretek: race ? race.name : "",
+      Kateg\u00F3ria: cat.label,
+      Suma: e.amount,
+      Mena: e.currency,
+      "Suma (EUR)": e.amountEUR,
+      Obchod: e.vendor || "",
+      "Pridal(a)": e.addedBy,
+      Pozn\u00E1mka: e.note || ""
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "V\xFDdavky");
+  XLSX.writeFile(wb, filename);
+}
+function RaceDetail({ race, expenses, races, currentUser, isCoordinator, onBack, onDeleteExpense, onEditExpense, onAddExpense, onDeleteRace }) {
   const [exporting, setExporting] = useState(false);
   const total = expenses.reduce((s, e) => s + e.amountEUR, 0);
   const byCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: expenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-2xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-4" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-3" }, "\u{1F4F7} Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-2xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-4" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-3" }, "\u{1F4F7} Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: exporting || expenses.length === 0,
@@ -525,14 +678,22 @@ function RaceDetail({ race, expenses, currentUser, isCoordinator, onBack, onDele
         }
         setExporting(false);
       },
-      className: "w-full border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-3 flex items-center justify-center gap-2 font-semibold text-sm mb-5"
+      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-3 flex items-center justify-center gap-2 font-semibold text-sm"
     },
-    exporting ? "Generujem PDF..." : "\u{1F4C4} Stiahnu\u0165 blo\u010Dky ako PDF"
-  ), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Blo\u010Dky (", expenses.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((e) => /* @__PURE__ */ React.createElement(SwipeableExpense, { key: e.id, expense: e, canDelete: isCoordinator || e.addedBy === currentUser, onDelete: () => onDeleteExpense(e.id) })), expenses.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne blo\u010Dky k tomuto preteku" })), onDeleteRace && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    exporting ? "Generujem..." : "PDF blo\u010Dky"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: expenses.length === 0,
+      onClick: () => exportExpensesToExcel(expenses, [race], `${race.name.replace(/[^a-z0-9]+/gi, "-")}-vydavky.xlsx`),
+      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-3 flex items-center justify-center gap-2 font-semibold text-sm"
+    },
+    "Excel"
+  )), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Blo\u010Dky (", expenses.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((e) => /* @__PURE__ */ React.createElement(SwipeableExpense, { key: e.id, expense: e, canDelete: isCoordinator || e.addedBy === currentUser, onDelete: () => onDeleteExpense(e.id), onEdit: () => onEditExpense(e) })), expenses.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne blo\u010Dky k tomuto preteku" })), onDeleteRace && /* @__PURE__ */ React.createElement("button", { onClick: () => {
     if (confirm(`Naozaj zmaza\u0165 pretek "${race.name}" a v\u0161etky jeho blo\u010Dky?`)) onDeleteRace();
   }, className: "w-full text-red-500 text-xs font-medium py-3 flex items-center justify-center gap-1.5" }, "\u{1F5D1}\uFE0F Zmaza\u0165 pretek"));
 }
-function SwipeableExpense({ expense, canDelete, onDelete }) {
+function SwipeableExpense({ expense, canDelete, onDelete, onEdit }) {
   const [open, setOpen] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [receiptState, setReceiptState] = useState("idle");
@@ -552,7 +713,7 @@ function SwipeableExpense({ expense, canDelete, onDelete }) {
       }
     }
   };
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: toggle, className: "w-full text-left" }, /* @__PURE__ */ React.createElement(ExpenseRow, { expense })), open && /* @__PURE__ */ React.createElement("div", { className: "bg-gray-50 border border-t-0 border-gray-200 rounded-b-xl px-3 py-3 -mt-2" }, receiptState === "loading" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 py-2 text-center" }, "Na\u010D\xEDtavam blo\u010Dek..."), receiptState === "loaded" && /* @__PURE__ */ React.createElement("img", { src: receipt, alt: "Blo\u010Dek", className: "w-full max-h-72 object-contain rounded-lg border border-gray-200 mb-3 bg-white" }), receiptState === "none" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 py-1 mb-2" }, "\u{1F4CE} K tomuto blo\u010Dku nie je ulo\u017Een\xE1 fotka"), receiptState === "error" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-400 py-1 mb-2" }, "Fotku sa nepodarilo na\u010D\xEDta\u0165"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, expense.note && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-500 flex-1 pr-2" }, expense.note), canDelete && /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-red-500 text-xs font-medium flex items-center gap-1 shrink-0 ml-auto" }, "\u{1F5D1}\uFE0F Zmaza\u0165"))));
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: toggle, className: "w-full text-left" }, /* @__PURE__ */ React.createElement(ExpenseRow, { expense })), open && /* @__PURE__ */ React.createElement("div", { className: "bg-gray-50 border border-t-0 border-gray-200 rounded-b-xl px-3 py-3 -mt-2" }, receiptState === "loading" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 py-2 text-center" }, "Na\u010D\xEDtavam blo\u010Dek..."), receiptState === "loaded" && /* @__PURE__ */ React.createElement("img", { src: receipt, alt: "Blo\u010Dek", className: "w-full max-h-72 object-contain rounded-lg border border-gray-200 mb-3 bg-white" }), receiptState === "none" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 py-1 mb-2" }, "\u{1F4CE} K tomuto blo\u010Dku nie je ulo\u017Een\xE1 fotka"), receiptState === "error" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-400 py-1 mb-2" }, "Fotku sa nepodarilo na\u010D\xEDta\u0165"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-2" }, expense.note && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-500 flex-1 pr-2" }, expense.note), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 shrink-0 ml-auto" }, canDelete && /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "text-gray-500 text-xs font-medium" }, "Upravi\u0165"), canDelete && /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-red-500 text-xs font-medium" }, "Zmaza\u0165")))));
 }
 function ModalShell({ title, onClose, footer, children }) {
   return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-black/40 z-40 flex items-end sm:items-center justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl flex flex-col", style: { height: "92vh", maxHeight: "92vh" } }, /* @__PURE__ */ React.createElement("div", { className: "shrink-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, title), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "text-gray-500 p-1 text-lg" }, "\u2715")), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto px-5 py-4" }, children), footer && /* @__PURE__ */ React.createElement("div", { className: "shrink-0 border-t border-gray-100 px-5 py-3.5 bg-white" }, footer)));
@@ -576,22 +737,39 @@ function AddRaceModal({ onClose, onSave }) {
     "Ulo\u017Ei\u0165 pretek"
   ) }, /* @__PURE__ */ React.createElement(Field, { label: "N\xE1zov preteku" }, /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "napr. Mal\xE1 Fatra Enduro", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Miesto" }, /* @__PURE__ */ React.createElement("input", { value: location, onChange: (e) => setLocation(e.target.value), placeholder: "napr. Terchov\xE1", className: "input" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Od" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Do" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value), className: "input" }))));
 }
-function AddExpenseModal({ races, defaultRaceId, currentUser, onClose, onSave }) {
+function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, onClose, onSave }) {
   var _a;
   const t = todayISO();
   const sorted = races.slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
   const currentRace = races.find((r) => t >= r.startDate && t <= r.endDate);
   const fallbackRaceId = defaultRaceId || (currentRace == null ? void 0 : currentRace.id) || ((_a = sorted[sorted.length - 1]) == null ? void 0 : _a.id) || "";
+  const isEditing = Boolean(editingExpense);
   const [imageDataUrl, setImageDataUrl] = useState(null);
   const [ocrState, setOcrState] = useState("idle");
-  const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("EUR");
-  const [date, setDate] = useState(t);
-  const [vendor, setVendor] = useState("");
-  const [category, setCategory] = useState("phm");
-  const [raceId, setRaceId] = useState(fallbackRaceId);
-  const [note, setNote] = useState("");
+  const [amount, setAmount] = useState(isEditing ? String(editingExpense.amount) : "");
+  const [currency, setCurrency] = useState(isEditing ? editingExpense.currency : "EUR");
+  const [date, setDate] = useState(isEditing ? editingExpense.date : t);
+  const [vendor, setVendor] = useState(isEditing ? editingExpense.vendor || "" : "");
+  const [category, setCategory] = useState(isEditing ? editingExpense.category : "phm");
+  const [raceId, setRaceId] = useState(isEditing ? editingExpense.raceId : fallbackRaceId);
+  const [note, setNote] = useState(isEditing ? editingExpense.note || "" : "");
   const [saving, setSaving] = useState(false);
+  const [loadingReceipt, setLoadingReceipt] = useState(isEditing);
+  useEffect(() => {
+    if (isEditing) {
+      (async () => {
+        try {
+          const img = await kvGet("ctm-receipt:" + editingExpense.id);
+          if (img) {
+            setImageDataUrl(img);
+            setOcrState("done");
+          }
+        } catch (e) {
+        }
+        setLoadingReceipt(false);
+      })();
+    }
+  }, []);
   const handleFile = async (file) => {
     if (!file) return;
     const dataUrl = await fileToCompressedBase64(file);
@@ -611,7 +789,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, onClose, onSave })
   const canSave = amount && parseFloat(amount) > 0 && raceId && date;
   const handleSave = async () => {
     setSaving(true);
-    const id = uid();
+    const id = isEditing ? editingExpense.id : uid();
     const amt = parseFloat(amount);
     const expense = {
       id,
@@ -623,19 +801,19 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, onClose, onSave })
       date,
       vendor: vendor.trim(),
       note: note.trim(),
-      addedBy: currentUser,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      addedBy: isEditing ? editingExpense.addedBy : currentUser,
+      createdAt: isEditing ? editingExpense.createdAt : (/* @__PURE__ */ new Date()).toISOString()
     };
     if (imageDataUrl) {
       try {
-        await kvSet("ctm-receipt:" + id, imageDataUrl);
+        await resilientKvSet("ctm-receipt:" + id, imageDataUrl);
       } catch (e) {
       }
     }
     await onSave(expense);
     setSaving(false);
   };
-  return /* @__PURE__ */ React.createElement(ModalShell, { title: "Nov\xFD blo\u010Dek", onClose, footer: /* @__PURE__ */ React.createElement("button", { disabled: !canSave || saving, onClick: handleSave, className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2" }, saving && /* @__PURE__ */ React.createElement("span", { className: "w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" }), "Ulo\u017Ei\u0165 blo\u010Dek") }, !imageDataUrl ? /* @__PURE__ */ React.createElement("label", { className: "w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center justify-center gap-2 text-gray-500 mb-4 cursor-pointer hover:border-violet-600 hover:text-violet-600" }, /* @__PURE__ */ React.createElement("span", { className: "text-3xl" }, "\u{1F4F7}"), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium" }, "Odfoti\u0165 / vybra\u0165 blo\u010Dek"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", className: "hidden", onChange: (e) => {
+  return /* @__PURE__ */ React.createElement(ModalShell, { title: isEditing ? "Upravi\u0165 blo\u010Dek" : "Nov\xFD blo\u010Dek", onClose, footer: /* @__PURE__ */ React.createElement("button", { disabled: !canSave || saving, onClick: handleSave, className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2" }, saving && /* @__PURE__ */ React.createElement("span", { className: "w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" }), isEditing ? "Ulo\u017Ei\u0165 zmeny" : "Ulo\u017Ei\u0165 blo\u010Dek") }, loadingReceipt && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 text-center py-2 mb-2" }, "Na\u010D\xEDtavam blo\u010Dek..."), !imageDataUrl ? /* @__PURE__ */ React.createElement("label", { className: "w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center justify-center gap-2 text-gray-500 mb-4 cursor-pointer hover:border-violet-600 hover:text-violet-600" }, /* @__PURE__ */ React.createElement("span", { className: "text-3xl" }, "\u{1F4F7}"), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium" }, "Odfoti\u0165 / vybra\u0165 blo\u010Dek"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", className: "hidden", onChange: (e) => {
     var _a2;
     return handleFile((_a2 = e.target.files) == null ? void 0 : _a2[0]);
   } })) : /* @__PURE__ */ React.createElement("div", { className: "relative mb-4" }, /* @__PURE__ */ React.createElement("img", { src: imageDataUrl, alt: "Blo\u010Dek", className: "w-full max-h-56 object-cover rounded-xl border border-gray-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => {
@@ -667,7 +845,15 @@ function StatsScreen({ races, expenses }) {
     return part;
   });
   const donutStyle = byCategory.length ? { background: `conic-gradient(${gradientParts.join(",")})` } : { background: "#E5E7EB" };
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5 overflow-x-auto" }, years.map((y) => /* @__PURE__ */ React.createElement("button", { key: y, onClick: () => setYear(y), className: `px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap ${y === year ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-500"}` }, y))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Celkov\xFD cashflow ", year), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-3" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-xs text-gray-500" }, /* @__PURE__ */ React.createElement("span", null, raceCount, " pretekov"), /* @__PURE__ */ React.createElement("span", null, yearExpenses.length, " blo\u010Dkov"))), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"));
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5 overflow-x-auto" }, years.map((y) => /* @__PURE__ */ React.createElement("button", { key: y, onClick: () => setYear(y), className: `px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap ${y === year ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-500"}` }, y))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Celkov\xFD cashflow ", year), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-3" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-xs text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement("span", null, raceCount, " pretekov"), /* @__PURE__ */ React.createElement("span", null, yearExpenses.length, " blo\u010Dkov")), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: yearExpenses.length === 0,
+      onClick: () => exportExpensesToExcel(yearExpenses, races, `CTM-${year}-vydavky.xlsx`),
+      className: "w-full border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
+    },
+    "Stiahnu\u0165 cel\xFD rok ako Excel"
+  )), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
 
