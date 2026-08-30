@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="sk">
 <head>
@@ -15,6 +14,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
   body { font-family: 'Inter', system-ui, sans-serif; background:#F7F7F5; }
   .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace; }
@@ -50,7 +50,7 @@ const { useState, useEffect, useMemo, useCallback } = React;
 const SUPABASE_URL = "https://ziczoosvticevufijvex.supabase.co";
 const SUPABASE_KEY = "sb_publishable_aH_TUrjUJ9rqzdkTDC4fCA_3Nh7wSm1";
 const COORDINATORS = ["Samuel Pau\u010Din", "Tom\xE1\u0161 T\xF3th"];
-const RIDERS = ["Martin Knapec", "Adam Milo", "Richard Tandara", "Enzo \u0160plha", "Filip Uhr\xEDn"];
+const RIDERS = ["Martin Knapec", "Adam Milo", "Richard Tandara", "Enzo \u0160plha", "Filip Uhr\xEDn", "Peter \u0160plha"];
 const ALL_MEMBERS = [...COORDINATORS, ...RIDERS];
 const CATEGORIES = [
   { id: "phm", label: "PHM", color: "#F97316", emoji: "\u26FD" },
@@ -103,26 +103,40 @@ function fileToCompressedBase64(file) {
   });
 }
 async function extractReceiptData(dataUrl) {
-  const base64 = dataUrl.split(",")[1];
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 500,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
-          { type: "text", text: 'Toto je fotka \xFA\u010Dtenky. Odpovedz IBA JSON objektom, \u017Eiadny in\xFD text:\n{"amount": <suma alebo null>, "currency": <"EUR"|"CZK"|"PLN"|null>, "date": <"YYYY-MM-DD" alebo null>, "vendor": <obchod alebo null>}' }
-        ]
-      }]
-    })
-  });
-  const data = await response.json();
-  const textBlock = (data.content || []).find((b) => b.type === "text");
-  if (!textBlock) throw new Error("Pr\xE1zdna odpove\u010F");
-  return JSON.parse(textBlock.text.replace(/```json|```/g, "").trim());
+  var _a;
+  const result = await Tesseract.recognize(dataUrl, "eng");
+  const text = ((_a = result == null ? void 0 : result.data) == null ? void 0 : _a.text) || "";
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const numRegex = /(\d{1,3}(?:[ .]\d{3})*|\d+)[.,](\d{2})/g;
+  const amountKeywords = /celkem|celkom|suma|spolu|total|k uhrade|k úhradě|na zaplatenie|zaplatit/i;
+  let amount = null;
+  for (const line of lines) {
+    if (amountKeywords.test(line)) {
+      const matches = [...line.matchAll(numRegex)];
+      if (matches.length) {
+        const m = matches[matches.length - 1];
+        amount = parseFloat(m[1].replace(/[ .]/g, "") + "." + m[2]);
+        break;
+      }
+    }
+  }
+  if (amount === null) {
+    const all = [...text.matchAll(numRegex)].map((m) => parseFloat(m[1].replace(/[ .]/g, "") + "." + m[2]));
+    if (all.length) amount = Math.max(...all);
+  }
+  let currency = null;
+  if (/Kč|CZK/i.test(text)) currency = "CZK";
+  else if (/zł|PLN/i.test(text)) currency = "PLN";
+  else if (/€|EUR/i.test(text)) currency = "EUR";
+  let date = null;
+  const dateMatch = text.match(/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})/);
+  if (dateMatch) {
+    let [, d, mo, y] = dateMatch;
+    if (y.length === 2) y = (parseInt(y, 10) > 50 ? "19" : "20") + y;
+    date = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const vendor = lines[0] || null;
+  return { amount, currency, date, vendor };
 }
 async function kvGet(key) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=eq.${encodeURIComponent(key)}&select=value`, {
@@ -289,7 +303,7 @@ function App() {
     return /* @__PURE__ */ React.createElement(LoginScreen, { onSelectName: setPendingName });
   }
   const openRace = races.find((r) => r.id === openRaceId);
-  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 text-gray-900 flex flex-col" }, /* @__PURE__ */ React.createElement("header", { className: "bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between sticky top-0 z-30" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-orange-600 uppercase" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold -mt-0.5" }, "Financial")), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, className: "flex items-center gap-1.5 text-xs text-gray-500 px-2 py-1.5 rounded-lg hover:bg-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, currentUser), " \u23FB")), /* @__PURE__ */ React.createElement("main", { className: "flex-1 overflow-y-auto pb-24 max-w-md w-full mx-auto" }, loading ? /* @__PURE__ */ React.createElement(CenterSpinner, null) : openRace ? /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 text-gray-900 flex flex-col" }, /* @__PURE__ */ React.createElement("header", { className: "bg-white border-b border-gray-200 px-5 pb-3 flex items-center justify-between sticky top-0 z-30", style: { paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold -mt-0.5" }, "Financial")), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, className: "flex items-center gap-1.5 text-xs text-gray-500 px-2 py-1.5 rounded-lg hover:bg-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, currentUser), " \u23FB")), /* @__PURE__ */ React.createElement("main", { className: "flex-1 overflow-y-auto pb-24 max-w-md w-full mx-auto" }, loading ? /* @__PURE__ */ React.createElement(CenterSpinner, null) : openRace ? /* @__PURE__ */ React.createElement(
     RaceDetail,
     {
       race: openRace,
@@ -330,14 +344,14 @@ function App() {
   ), showAddRace && /* @__PURE__ */ React.createElement(AddRaceModal, { onClose: () => setShowAddRace(false), onSave: addRace }), toast && /* @__PURE__ */ React.createElement("div", { className: "fixed bottom-24 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50" }, toast));
 }
 function CenterSpinner() {
-  return /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center h-64" }, /* @__PURE__ */ React.createElement("div", { className: "w-7 h-7 border-2 border-orange-600 border-t-transparent rounded-full animate-spin" }));
+  return /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center h-64" }, /* @__PURE__ */ React.createElement("div", { className: "w-7 h-7 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" }));
 }
 function BottomNav({ tab, setTab }) {
   const items = [{ id: "home", label: "Domov", icon: "\u{1F3E0}" }, { id: "calendar", label: "Kalend\xE1r", icon: "\u{1F4C5}" }, { id: "stats", label: "\u0160tatistiky", icon: "\u{1F4CA}" }];
-  return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto grid grid-cols-3" }, items.map(({ id, label, icon }) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setTab(id), className: `flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${tab === id ? "text-orange-600" : "text-gray-400"}` }, /* @__PURE__ */ React.createElement("span", { className: "text-lg leading-none" }, icon), label))));
+  return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30", style: { paddingBottom: "env(safe-area-inset-bottom)" } }, /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto grid grid-cols-3" }, items.map(({ id, label, icon }) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setTab(id), className: `flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${tab === id ? "text-violet-600" : "text-gray-400"}` }, /* @__PURE__ */ React.createElement("span", { className: "text-lg leading-none" }, icon), label))));
 }
 function LoginScreen({ onSelectName }) {
-  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-orange-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-8" }, "Financial"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Koordin\xE1tori"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, COORDINATORS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-orange-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")))), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Jazdci"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, RIDERS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-orange-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))))));
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-8" }, "Financial"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Koordin\xE1tori"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, COORDINATORS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-violet-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")))), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Jazdci"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, RIDERS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-violet-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))))));
 }
 function PinScreen({ name, hasExistingPin, onBack, onVerify, onCreate, onSuccess }) {
   const [pin, setPin] = useState("");
@@ -365,7 +379,7 @@ function PinScreen({ name, hasExistingPin, onBack, onVerify, onCreate, onSuccess
     if (ok) onSuccess();
     else setError("Nepodarilo sa ulo\u017Ei\u0165 PIN, sk\xFAs to znova");
   };
-  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 relative" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "absolute top-6 left-6 flex items-center gap-1 text-sm text-gray-500" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-orange-600 uppercase mb-1" }, hasExistingPin ? "Prihl\xE1senie" : "Vytvori\u0165 PIN"), /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold mb-1" }, name), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-gray-500 mb-6 text-center max-w-xs" }, hasExistingPin ? "Zadaj svoj 4-miestny PIN" : "Prv\xE9 prihl\xE1senie \u2013 vytvor si 4-miestny PIN"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs space-y-4" }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 relative" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "absolute top-6 left-6 flex items-center gap-1 text-sm text-gray-500" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, hasExistingPin ? "Prihl\xE1senie" : "Vytvori\u0165 PIN"), /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold mb-1" }, name), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-gray-500 mb-6 text-center max-w-xs" }, hasExistingPin ? "Zadaj svoj 4-miestny PIN" : "Prv\xE9 prihl\xE1senie \u2013 vytvor si 4-miestny PIN"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs space-y-4" }, /* @__PURE__ */ React.createElement(
     "input",
     {
       type: "password",
@@ -378,7 +392,7 @@ function PinScreen({ name, hasExistingPin, onBack, onVerify, onCreate, onSuccess
       },
       placeholder: "\u2022\u2022\u2022\u2022",
       autoFocus: true,
-      className: "w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl py-4 bg-white focus:outline-none focus:border-orange-600"
+      className: "w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl py-4 bg-white focus:outline-none focus:border-violet-600"
     }
   ), !hasExistingPin && /* @__PURE__ */ React.createElement(
     "input",
@@ -392,14 +406,14 @@ function PinScreen({ name, hasExistingPin, onBack, onVerify, onCreate, onSuccess
         setConfirmPin(e.target.value.replace(/\D/g, ""));
       },
       placeholder: "Zopakuj PIN",
-      className: "w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl py-4 bg-white focus:outline-none focus:border-orange-600"
+      className: "w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl py-4 bg-white focus:outline-none focus:border-violet-600"
     }
   ), error && /* @__PURE__ */ React.createElement("div", { className: "text-red-500 text-xs text-center" }, error), /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: hasExistingPin ? pin.length !== 4 : pin.length !== 4 || confirmPin.length !== 4 || saving,
       onClick: hasExistingPin ? handleVerify : handleCreate,
-      className: "w-full bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
+      className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
     },
     hasExistingPin ? "Prihl\xE1si\u0165 sa" : "Vytvori\u0165 a prihl\xE1si\u0165 sa"
   )));
@@ -411,7 +425,7 @@ function HomeScreen({ races, expenses, onOpenRace, onQuickAdd }) {
   const featured = current || next;
   const featuredSpend = featured ? expenses.filter((e) => e.raceId === featured.id).reduce((s, e) => s + e.amountEUR, 0) : 0;
   const daysUntil = (iso) => Math.round((/* @__PURE__ */ new Date(iso + "T00:00:00") - /* @__PURE__ */ new Date(t + "T00:00:00")) / 864e5);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-orange-600 text-white rounded-2xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, "\u{1F4F7} Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-bold uppercase tracking-wide px-2 py-1 rounded-full ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, "\u{1F4CD} ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend)))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-6 text-center mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-3xl mb-2" }, "\u{1F4C5}"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-violet-600 text-white rounded-2xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, "\u{1F4F7} Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-bold uppercase tracking-wide px-2 py-1 rounded-full ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, "\u{1F4CD} ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend)))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-6 text-center mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-3xl mb-2" }, "\u{1F4C5}"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
 }
 function ExpenseRow({ expense }) {
   const cat = CAT_MAP[expense.category];
@@ -421,7 +435,7 @@ function CalendarScreen({ races, isCoordinator, onOpenRace, onAddRace }) {
   const t = todayISO();
   const upcoming = races.filter((r) => r.endDate >= t).sort((a, b) => a.startDate.localeCompare(b.startDate));
   const past = races.filter((r) => r.endDate < t).sort((a, b) => b.startDate.localeCompare(a.startDate));
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, isCoordinator && /* @__PURE__ */ React.createElement("button", { onClick: onAddRace, className: "w-full border-2 border-dashed border-gray-300 text-gray-500 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium mb-6 hover:border-orange-600 hover:text-orange-600" }, "\uFF0B Prida\u0165 pretek"), /* @__PURE__ */ React.createElement(Section, { title: "Nadch\xE1dzaj\xFAce preteky" }, upcoming.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "\u017Diadne napl\xE1novan\xE9 preteky" }), upcoming.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))), /* @__PURE__ */ React.createElement(Section, { title: "Prebehnut\xE9 preteky" }, past.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne odjazden\xE9 preteky" }), past.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))));
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, isCoordinator && /* @__PURE__ */ React.createElement("button", { onClick: onAddRace, className: "w-full border-2 border-dashed border-gray-300 text-gray-500 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium mb-6 hover:border-violet-600 hover:text-violet-600" }, "\uFF0B Prida\u0165 pretek"), /* @__PURE__ */ React.createElement(Section, { title: "Nadch\xE1dzaj\xFAce preteky" }, upcoming.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "\u017Diadne napl\xE1novan\xE9 preteky" }), upcoming.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))), /* @__PURE__ */ React.createElement(Section, { title: "Prebehnut\xE9 preteky" }, past.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne odjazden\xE9 preteky" }), past.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))));
 }
 function Section({ title, children }) {
   return /* @__PURE__ */ React.createElement("div", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, title), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, children));
@@ -436,13 +450,31 @@ function RaceRow({ race, onClick }) {
 function RaceDetail({ race, expenses, currentUser, isCoordinator, onBack, onDeleteExpense, onAddExpense, onDeleteRace }) {
   const total = expenses.reduce((s, e) => s + e.amountEUR, 0);
   const byCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: expenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-2xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-4" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-orange-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-5" }, "\u{1F4F7} Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Blo\u010Dky (", expenses.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((e) => /* @__PURE__ */ React.createElement(SwipeableExpense, { key: e.id, expense: e, canDelete: isCoordinator || e.addedBy === currentUser, onDelete: () => onDeleteExpense(e.id) })), expenses.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne blo\u010Dky k tomuto preteku" })), onDeleteRace && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-2xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-4" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-5" }, "\u{1F4F7} Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Blo\u010Dky (", expenses.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((e) => /* @__PURE__ */ React.createElement(SwipeableExpense, { key: e.id, expense: e, canDelete: isCoordinator || e.addedBy === currentUser, onDelete: () => onDeleteExpense(e.id) })), expenses.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne blo\u010Dky k tomuto preteku" })), onDeleteRace && /* @__PURE__ */ React.createElement("button", { onClick: () => {
     if (confirm(`Naozaj zmaza\u0165 pretek "${race.name}" a v\u0161etky jeho blo\u010Dky?`)) onDeleteRace();
   }, className: "w-full text-red-500 text-xs font-medium py-3 flex items-center justify-center gap-1.5" }, "\u{1F5D1}\uFE0F Zmaza\u0165 pretek"));
 }
 function SwipeableExpense({ expense, canDelete, onDelete }) {
   const [open, setOpen] = useState(false);
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => setOpen(!open), className: "w-full text-left" }, /* @__PURE__ */ React.createElement(ExpenseRow, { expense })), open && /* @__PURE__ */ React.createElement("div", { className: "bg-gray-50 border border-t-0 border-gray-200 rounded-b-xl px-3 py-3 -mt-2 flex items-center justify-between" }, expense.note && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-500 flex-1 pr-2" }, expense.note), canDelete && /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-red-500 text-xs font-medium flex items-center gap-1 shrink-0" }, "\u{1F5D1}\uFE0F Zmaza\u0165")));
+  const [receipt, setReceipt] = useState(null);
+  const [receiptState, setReceiptState] = useState("idle");
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && receiptState === "idle") {
+      setReceiptState("loading");
+      try {
+        const img = await kvGet("ctm-receipt:" + expense.id);
+        if (img) {
+          setReceipt(img);
+          setReceiptState("loaded");
+        } else setReceiptState("none");
+      } catch (e) {
+        setReceiptState("error");
+      }
+    }
+  };
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: toggle, className: "w-full text-left" }, /* @__PURE__ */ React.createElement(ExpenseRow, { expense })), open && /* @__PURE__ */ React.createElement("div", { className: "bg-gray-50 border border-t-0 border-gray-200 rounded-b-xl px-3 py-3 -mt-2" }, receiptState === "loading" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 py-2 text-center" }, "Na\u010D\xEDtavam blo\u010Dek..."), receiptState === "loaded" && /* @__PURE__ */ React.createElement("img", { src: receipt, alt: "Blo\u010Dek", className: "w-full max-h-72 object-contain rounded-lg border border-gray-200 mb-3 bg-white" }), receiptState === "none" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 py-1 mb-2" }, "\u{1F4CE} K tomuto blo\u010Dku nie je ulo\u017Een\xE1 fotka"), receiptState === "error" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-400 py-1 mb-2" }, "Fotku sa nepodarilo na\u010D\xEDta\u0165"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, expense.note && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-500 flex-1 pr-2" }, expense.note), canDelete && /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-red-500 text-xs font-medium flex items-center gap-1 shrink-0 ml-auto" }, "\u{1F5D1}\uFE0F Zmaza\u0165"))));
 }
 function ModalShell({ title, onClose, footer, children }) {
   return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-black/40 z-40 flex items-end sm:items-center justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl flex flex-col", style: { height: "92vh", maxHeight: "92vh" } }, /* @__PURE__ */ React.createElement("div", { className: "shrink-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, title), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "text-gray-500 p-1 text-lg" }, "\u2715")), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto px-5 py-4" }, children), footer && /* @__PURE__ */ React.createElement("div", { className: "shrink-0 border-t border-gray-100 px-5 py-3.5 bg-white" }, footer)));
@@ -461,7 +493,7 @@ function AddRaceModal({ onClose, onSave }) {
     {
       disabled: !canSave,
       onClick: () => onSave({ name: name.trim(), location: location.trim(), startDate, endDate }),
-      className: "w-full bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
+      className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
     },
     "Ulo\u017Ei\u0165 pretek"
   ) }, /* @__PURE__ */ React.createElement(Field, { label: "N\xE1zov preteku" }, /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "napr. Mal\xE1 Fatra Enduro", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Miesto" }, /* @__PURE__ */ React.createElement("input", { value: location, onChange: (e) => setLocation(e.target.value), placeholder: "napr. Terchov\xE1", className: "input" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Od" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Do" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value), className: "input" }))));
@@ -525,7 +557,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, onClose, onSave })
     await onSave(expense);
     setSaving(false);
   };
-  return /* @__PURE__ */ React.createElement(ModalShell, { title: "Nov\xFD blo\u010Dek", onClose, footer: /* @__PURE__ */ React.createElement("button", { disabled: !canSave || saving, onClick: handleSave, className: "w-full bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2" }, saving && /* @__PURE__ */ React.createElement("span", { className: "w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" }), "Ulo\u017Ei\u0165 blo\u010Dek") }, !imageDataUrl ? /* @__PURE__ */ React.createElement("label", { className: "w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center justify-center gap-2 text-gray-500 mb-4 cursor-pointer hover:border-orange-600 hover:text-orange-600" }, /* @__PURE__ */ React.createElement("span", { className: "text-3xl" }, "\u{1F4F7}"), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium" }, "Odfoti\u0165 / vybra\u0165 blo\u010Dek"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", className: "hidden", onChange: (e) => {
+  return /* @__PURE__ */ React.createElement(ModalShell, { title: "Nov\xFD blo\u010Dek", onClose, footer: /* @__PURE__ */ React.createElement("button", { disabled: !canSave || saving, onClick: handleSave, className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2" }, saving && /* @__PURE__ */ React.createElement("span", { className: "w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" }), "Ulo\u017Ei\u0165 blo\u010Dek") }, !imageDataUrl ? /* @__PURE__ */ React.createElement("label", { className: "w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center justify-center gap-2 text-gray-500 mb-4 cursor-pointer hover:border-violet-600 hover:text-violet-600" }, /* @__PURE__ */ React.createElement("span", { className: "text-3xl" }, "\u{1F4F7}"), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium" }, "Odfoti\u0165 / vybra\u0165 blo\u010Dek"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", className: "hidden", onChange: (e) => {
     var _a2;
     return handleFile((_a2 = e.target.files) == null ? void 0 : _a2[0]);
   } })) : /* @__PURE__ */ React.createElement("div", { className: "relative mb-4" }, /* @__PURE__ */ React.createElement("img", { src: imageDataUrl, alt: "Blo\u010Dek", className: "w-full max-h-56 object-cover rounded-xl border border-gray-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => {
