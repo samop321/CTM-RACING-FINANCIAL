@@ -598,6 +598,38 @@ function RaceRow({ race, onClick }) {
   const status = raceStatus(race);
   return /* @__PURE__ */ React.createElement("button", { onClick, className: "w-full text-left bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-base truncate" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 flex items-center gap-1 mt-0.5" }, "\u{1F4CD} ", race.location, " \xB7 ", fmtDateShort(race.startDate), " \u2013 ", fmtDateShort(race.endDate))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 shrink-0" }, status === "prebieha" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold uppercase text-red-600 bg-red-50 px-2 py-1 rounded-full" }, "Live"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")));
 }
+function processReceiptImageScan(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      let min = 255, max = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        d[i] = d[i + 1] = d[i + 2] = gray;
+        if (gray < min) min = gray;
+        if (gray > max) max = gray;
+      }
+      const range = Math.max(1, max - min);
+      for (let i = 0; i < d.length; i += 4) {
+        let v = (d[i] - min) * 255 / range;
+        v = (v - 128) * 1.35 + 128 + 12;
+        v = Math.min(255, Math.max(0, v));
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/jpeg", 0.88));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
 async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -637,20 +669,25 @@ async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
     } catch (err) {
     }
     if (!img) continue;
+    let scanImg = img;
+    try {
+      scanImg = await processReceiptImageScan(img);
+    } catch (err) {
+    }
     doc.addPage();
     const cat = CAT_MAP[e.category];
     doc.setFontSize(12);
     const header = races.length > 1 ? `${raceName(e.raceId)} \xB7 ${cat.label} \xB7 ${fmtMoney(e.amount, e.currency)} \xB7 ${fmtDate(e.date)} \xB7 ${e.addedBy}` : `${cat.label} \xB7 ${fmtMoney(e.amount, e.currency)} \xB7 ${fmtDate(e.date)} \xB7 ${e.addedBy}`;
     doc.text(header, margin, 15);
     try {
-      const props = doc.getImageProperties(img);
+      const props = doc.getImageProperties(scanImg);
       const maxW = pageW - margin * 2, maxH = pageH - 30;
       let w = maxW, h = props.height * w / props.width;
       if (h > maxH) {
         h = maxH;
         w = props.width * h / props.height;
       }
-      doc.addImage(img, "JPEG", margin, 22, w, h);
+      doc.addImage(scanImg, "JPEG", margin, 22, w, h);
     } catch (err) {
     }
   }
@@ -674,6 +711,28 @@ function exportExpensesToExcel(expenses, races, filename) {
     };
   });
   const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 12 },
+    // Dátum
+    { wch: 26 },
+    // Pretek
+    { wch: 26 },
+    // Kategória (double width)
+    { wch: 10 },
+    // Suma
+    { wch: 8 },
+    // Mena
+    { wch: 14 },
+    // Suma (EUR)
+    { wch: 14 },
+    // Platené z
+    { wch: 22 },
+    // Obchod
+    { wch: 18 },
+    // Pridal(a)
+    { wch: 30 }
+    // Poznámka
+  ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "V\xFDdavky");
   XLSX.writeFile(wb, filename);
@@ -853,7 +912,6 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
 }
 function StatsScreen({ races, expenses }) {
   const [exportingYear, setExportingYear] = useState(false);
-  const [exportingAll, setExportingAll] = useState(false);
   const years = useMemo(() => {
     const s = new Set(races.map((r) => r.startDate.slice(0, 4)));
     if (s.size === 0) s.add(String((/* @__PURE__ */ new Date()).getFullYear()));
@@ -898,30 +956,6 @@ function StatsScreen({ races, expenses }) {
       className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
     },
     "Excel za rok"
-  ))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Cel\xE1 hist\xF3ria (", races.length, " pretekov)"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(
-    "button",
-    {
-      disabled: expenses.length === 0 || exportingAll,
-      onClick: async () => {
-        setExportingAll(true);
-        try {
-          await buildReceiptsPdf("CTM Racing Team \u2013 Cel\xE1 hist\xF3ria", `${races.length} pretekov \xB7 ${expenses.length} blo\u010Dkov`, expenses, races, "CTM-Racing-Team-celkovo.pdf");
-        } catch (err) {
-          alert("Export sa nepodaril: " + err.message);
-        }
-        setExportingAll(false);
-      },
-      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
-    },
-    exportingAll ? "Generujem..." : "PDF celkovo"
-  ), /* @__PURE__ */ React.createElement(
-    "button",
-    {
-      disabled: expenses.length === 0,
-      onClick: () => exportExpensesToExcel(expenses, races, "CTM-Racing-Team-celkovo.xlsx"),
-      className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
-    },
-    "Excel celkovo"
   ))), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
