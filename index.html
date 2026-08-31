@@ -59,7 +59,7 @@ var __spreadValues = (a, b) => {
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 const { useState, useEffect, useMemo, useCallback } = React;
 const SUPABASE_URL = "https://ziczoosvticevufijvex.supabase.co";
-const APP_PASSWORD_HASH = "dd8870a61aa07e72819188302a78b0bcbf77f9eb5b0fa9b9ab8db21ba9de21b5";
+const APP_PASSWORD_HASH = "b3282a2f2a28757b3a18ab833de16a9c54518c0b0cf493e3f0a7cf09386f326a";
 async function sha256Hex(text) {
   const enc = new TextEncoder().encode(text);
   const buf = await crypto.subtle.digest("SHA-256", enc);
@@ -335,7 +335,6 @@ function App() {
       setPins(cleanedPins);
       if (needsCleanup) saveShared("ctm-pins", cleanedPins);
       try {
-        if (localStorage.getItem("ctm-gate-unlocked") === "true") setGateUnlocked(true);
         const saved = localStorage.getItem("ctm-current-user");
         if (saved && ALL_MEMBERS.includes(saved)) setCurrentUser(saved);
       } catch (e) {
@@ -426,13 +425,7 @@ function App() {
     return /* @__PURE__ */ React.createElement(
       GateScreen,
       {
-        onUnlock: () => {
-          try {
-            localStorage.setItem("ctm-gate-unlocked", "true");
-          } catch (e) {
-          }
-          setGateUnlocked(true);
-        }
+        onUnlock: () => setGateUnlocked(true)
       }
     );
   }
@@ -533,40 +526,42 @@ function BottomNav({ tab, setTab }) {
   return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30", style: { paddingBottom: "env(safe-area-inset-bottom)" } }, /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto grid grid-cols-3" }, items.map(({ id, label, Icon }) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setTab(id), className: `flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${tab === id ? "text-violet-600" : "text-gray-400"}` }, /* @__PURE__ */ React.createElement(Icon, null), label))));
 }
 function GateScreen({ onUnlock }) {
-  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
   const handleSubmit = async () => {
-    if (!password) return;
+    if (pin.length !== 4) return;
     setChecking(true);
-    const hash = await sha256Hex(password);
+    const hash = await sha256Hex(pin);
     setChecking(false);
     if (hash === APP_PASSWORD_HASH) onUnlock();
     else {
-      setError("Nespr\xE1vne heslo");
-      setPassword("");
+      setError("Nespr\xE1vny PIN");
+      setPin("");
     }
   };
-  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-8" }, "Financial"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs space-y-4" }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-1" }, "Financial"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-gray-500 mb-6 text-center max-w-xs" }, "Zadaj t\xEDmov\xFD PIN"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs space-y-4" }, /* @__PURE__ */ React.createElement(
     "input",
     {
       type: "password",
-      value: password,
+      inputMode: "numeric",
+      maxLength: 4,
+      value: pin,
       onChange: (e) => {
         setError("");
-        setPassword(e.target.value);
+        setPin(e.target.value.replace(/\D/g, ""));
       },
       onKeyDown: (e) => {
         if (e.key === "Enter") handleSubmit();
       },
-      placeholder: "Heslo t\xEDmu",
+      placeholder: "\u2022\u2022\u2022\u2022",
       autoFocus: true,
-      className: "w-full text-center border border-gray-200 rounded-xl py-3.5 bg-white focus:outline-none focus:border-violet-600"
+      className: "w-full text-center text-2xl tracking-widest border border-gray-200 rounded-xl py-4 bg-white focus:outline-none focus:border-violet-600"
     }
   ), error && /* @__PURE__ */ React.createElement("div", { className: "text-red-500 text-xs text-center" }, error), /* @__PURE__ */ React.createElement(
     "button",
     {
-      disabled: !password || checking,
+      disabled: pin.length !== 4 || checking,
       onClick: handleSubmit,
       className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
     },
