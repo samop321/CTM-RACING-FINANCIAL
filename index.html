@@ -325,7 +325,15 @@ function App() {
   useEffect(() => {
     (async () => {
       const loadedPins = await loadShared("ctm-pins", {});
-      setPins(loadedPins);
+      const hashRe = /^[a-f0-9]{64}$/i;
+      let needsCleanup = false;
+      const cleanedPins = {};
+      for (const [name, value] of Object.entries(loadedPins)) {
+        if (hashRe.test(value)) cleanedPins[name] = value;
+        else needsCleanup = true;
+      }
+      setPins(cleanedPins);
+      if (needsCleanup) saveShared("ctm-pins", cleanedPins);
       try {
         if (localStorage.getItem("ctm-gate-unlocked") === "true") setGateUnlocked(true);
         const saved = localStorage.getItem("ctm-current-user");
