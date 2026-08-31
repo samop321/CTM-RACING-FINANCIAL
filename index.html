@@ -59,6 +59,12 @@ var __spreadValues = (a, b) => {
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 const { useState, useEffect, useMemo, useCallback } = React;
 const SUPABASE_URL = "https://ziczoosvticevufijvex.supabase.co";
+const APP_PASSWORD_HASH = "dd8870a61aa07e72819188302a78b0bcbf77f9eb5b0fa9b9ab8db21ba9de21b5";
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 const SUPABASE_KEY = "sb_publishable_aH_TUrjUJ9rqzdkTDC4fCA_3Nh7wSm1";
 const COORDINATORS = ["Samuel Pau\u010Din", "Tom\xE1\u0161 T\xF3th"];
 const RIDERS = ["Martin Knapec", "Adam Milo", "Richard Tandara", "Enzo \u0160plha", "Filip Uhr\xEDn", "Peter \u0160plha", "Marek Moravik"];
@@ -274,6 +280,7 @@ async function resilientKvSet(key, value) {
 }
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
+  const [gateUnlocked, setGateUnlocked] = useState(false);
   const [pendingName, setPendingName] = useState(null);
   const [pins, setPins] = useState(null);
   const [booted, setBooted] = useState(false);
@@ -320,6 +327,7 @@ function App() {
       const loadedPins = await loadShared("ctm-pins", {});
       setPins(loadedPins);
       try {
+        if (localStorage.getItem("ctm-gate-unlocked") === "true") setGateUnlocked(true);
         const saved = localStorage.getItem("ctm-current-user");
         if (saved && ALL_MEMBERS.includes(saved)) setCurrentUser(saved);
       } catch (e) {
@@ -328,7 +336,8 @@ function App() {
     })();
   }, []);
   const savePin = async (name, pin) => {
-    const next = __spreadProps(__spreadValues({}, pins || {}), { [name]: pin });
+    const hash = await sha256Hex(name + ":" + pin);
+    const next = __spreadProps(__spreadValues({}, pins || {}), { [name]: hash });
     setPins(next);
     return saveShared("ctm-pins", next);
   };
@@ -405,6 +414,20 @@ function App() {
     showToast("Blo\u010Dek zmazan\xFD");
   };
   if (!booted || pins === null) return /* @__PURE__ */ React.createElement(CenterSpinner, null);
+  if (!gateUnlocked) {
+    return /* @__PURE__ */ React.createElement(
+      GateScreen,
+      {
+        onUnlock: () => {
+          try {
+            localStorage.setItem("ctm-gate-unlocked", "true");
+          } catch (e) {
+          }
+          setGateUnlocked(true);
+        }
+      }
+    );
+  }
   if (!currentUser) {
     if (pendingName) {
       return /* @__PURE__ */ React.createElement(
@@ -413,7 +436,7 @@ function App() {
           name: pendingName,
           hasExistingPin: Boolean(pins[pendingName]),
           onBack: () => setPendingName(null),
-          onVerify: (pin) => pins[pendingName] === pin,
+          onVerify: async (pin) => pins[pendingName] === await sha256Hex(pendingName + ":" + pin),
           onCreate: async (pin) => {
             const ok = await savePin(pendingName, pin);
             if (ok) showToast("PIN nastaven\xFD");
@@ -501,6 +524,47 @@ function BottomNav({ tab, setTab }) {
   const items = [{ id: "home", label: "Domov", Icon: NavIconHome }, { id: "calendar", label: "Kalend\xE1r", Icon: NavIconCalendar }, { id: "stats", label: "\u0160tatistiky", Icon: NavIconStats }];
   return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30", style: { paddingBottom: "env(safe-area-inset-bottom)" } }, /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto grid grid-cols-3" }, items.map(({ id, label, Icon }) => /* @__PURE__ */ React.createElement("button", { key: id, onClick: () => setTab(id), className: `flex flex-col items-center gap-1 py-2.5 text-xs font-medium ${tab === id ? "text-violet-600" : "text-gray-400"}` }, /* @__PURE__ */ React.createElement(Icon, null), label))));
 }
+function GateScreen({ onUnlock }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const handleSubmit = async () => {
+    if (!password) return;
+    setChecking(true);
+    const hash = await sha256Hex(password);
+    setChecking(false);
+    if (hash === APP_PASSWORD_HASH) onUnlock();
+    else {
+      setError("Nespr\xE1vne heslo");
+      setPassword("");
+    }
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-8" }, "Financial"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs space-y-4" }, /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "password",
+      value: password,
+      onChange: (e) => {
+        setError("");
+        setPassword(e.target.value);
+      },
+      onKeyDown: (e) => {
+        if (e.key === "Enter") handleSubmit();
+      },
+      placeholder: "Heslo t\xEDmu",
+      autoFocus: true,
+      className: "w-full text-center border border-gray-200 rounded-xl py-3.5 bg-white focus:outline-none focus:border-violet-600"
+    }
+  ), error && /* @__PURE__ */ React.createElement("div", { className: "text-red-500 text-xs text-center" }, error), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: !password || checking,
+      onClick: handleSubmit,
+      className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
+    },
+    checking ? "Overujem..." : "Vst\xFApi\u0165"
+  )));
+}
 function LoginScreen({ onSelectName }) {
   return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs tracking-widest font-semibold text-violet-600 uppercase mb-1" }, "CTM Racing Team"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold mb-8" }, "Financial"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-xs" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Koordin\xE1tori"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, COORDINATORS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-violet-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")))), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Jazdci"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, RIDERS.map((name) => /* @__PURE__ */ React.createElement("button", { key: name, onClick: () => onSelectName(name), className: "w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-3.5 font-medium flex items-center justify-between hover:border-violet-600" }, name, /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))))));
 }
@@ -509,9 +573,10 @@ function PinScreen({ name, hasExistingPin, onBack, onVerify, onCreate, onSuccess
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (pin.length !== 4) return;
-    if (onVerify(pin)) onSuccess();
+    const ok = await onVerify(pin);
+    if (ok) onSuccess();
     else {
       setError("Nespr\xE1vny PIN, sk\xFAs znova");
       setPin("");
