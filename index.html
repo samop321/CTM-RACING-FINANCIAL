@@ -384,6 +384,78 @@ async function resilientKvSet(key, value) {
     return { ok: true, queued: true };
   }
 }
+async function loadRecordsList(prefix, cacheKey) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=like.${encodeURIComponent(prefix)}*&select=value`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error("List zlyhal " + res.status);
+    const rows = await res.json();
+    const values = rows.map((r) => r.value);
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(values));
+    } catch (e) {
+    }
+    return values;
+  } catch (e) {
+    console.warn("list failed, using cache", prefix, e);
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch (e2) {
+    }
+    return [];
+  }
+}
+async function loadRecordsMap(prefix, cacheKey) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=like.${encodeURIComponent(prefix)}*&select=key,value`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error("List zlyhal " + res.status);
+    const rows = await res.json();
+    const map = {};
+    for (const row of rows) map[row.key.slice(prefix.length)] = row.value;
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(map));
+    } catch (e) {
+    }
+    return map;
+  } catch (e) {
+    console.warn("map list failed, using cache", prefix, e);
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch (e2) {
+    }
+    return {};
+  }
+}
+async function migrateToPerRecordStorage() {
+  try {
+    const flag = await kvGet("ctm-migrated-v2");
+    if (flag) return;
+    const oldRaces = await kvGet("ctm-races");
+    if (Array.isArray(oldRaces)) {
+      for (const r of oldRaces) {
+        if (r == null ? void 0 : r.id) await kvSet("ctm-race-item:" + r.id, r);
+      }
+    }
+    const oldExpenses = await kvGet("ctm-expenses");
+    if (Array.isArray(oldExpenses)) {
+      for (const e of oldExpenses) {
+        if (e == null ? void 0 : e.id) await kvSet("ctm-expense-item:" + e.id, e);
+      }
+    }
+    const oldPins = await kvGet("ctm-pins");
+    if (oldPins && typeof oldPins === "object") {
+      for (const [name, hash] of Object.entries(oldPins)) await kvSet("ctm-pin-item:" + name, hash);
+    }
+    await kvSet("ctm-migrated-v2", true);
+  } catch (e) {
+    console.warn("migration failed, will retry next load", e);
+  }
+}
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [gateUnlocked, setGateUnlocked] = useState(false);
@@ -431,16 +503,16 @@ function App() {
   }, [refreshQueueCount]);
   useEffect(() => {
     (async () => {
-      const loadedPins = await loadShared("ctm-pins", {});
+      await migrateToPerRecordStorage();
+      const loadedPins = await loadRecordsMap("ctm-pin-item:", "ctm-cache:pins-map");
       const hashRe = /^[a-f0-9]{64}$/i;
-      let needsCleanup = false;
       const cleanedPins = {};
       for (const [name, value] of Object.entries(loadedPins)) {
         if (hashRe.test(value)) cleanedPins[name] = value;
-        else needsCleanup = true;
+        else kvDelete("ctm-pin-item:" + name).catch(() => {
+        });
       }
       setPins(cleanedPins);
-      if (needsCleanup) saveShared("ctm-pins", cleanedPins);
       try {
         const saved = localStorage.getItem("ctm-current-user");
         if (saved && ALL_MEMBERS.includes(saved)) setCurrentUser(saved);
@@ -451,13 +523,16 @@ function App() {
   }, []);
   const savePin = async (name, pin) => {
     const hash = await sha256Hex(name + ":" + pin);
-    const next = __spreadProps(__spreadValues({}, pins || {}), { [name]: hash });
-    setPins(next);
-    return saveShared("ctm-pins", next);
+    setPins((prev) => __spreadProps(__spreadValues({}, prev || {}), { [name]: hash }));
+    return saveShared("ctm-pin-item:" + name, hash);
   };
   const refreshAll = useCallback(async () => {
     setLoading(true);
-    const [r, e] = await Promise.all([loadShared("ctm-races", []), loadShared("ctm-expenses", [])]);
+    await migrateToPerRecordStorage();
+    const [r, e] = await Promise.all([
+      loadRecordsList("ctm-race-item:", "ctm-cache:races-list"),
+      loadRecordsList("ctm-expense-item:", "ctm-cache:expenses-list")
+    ]);
     setRaces(r);
     setExpenses(e);
     setLoading(false);
@@ -484,20 +559,28 @@ function App() {
     }
   };
   const addRace = async (race) => {
-    const next = [...races, __spreadProps(__spreadValues({}, race), { id: uid() })].sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const newRace = __spreadProps(__spreadValues({}, race), { id: uid() });
+    const next = [...races, newRace].sort((a, b) => a.startDate.localeCompare(b.startDate));
     setRaces(next);
-    const r = await saveShared("ctm-races", next);
+    const r = await saveShared("ctm-race-item:" + newRace.id, newRace);
     showToast(r.queued ? "Pretek ulo\u017Een\xFD (offline, zosynchronizuje sa)" : "Pretek pridan\xFD");
     refreshQueueCount();
     setShowAddRace(false);
   };
   const deleteRace = async (id) => {
+    const removedExpenseIds = expenses.filter((e) => e.raceId === id).map((e) => e.id);
     const next = races.filter((r) => r.id !== id);
     const nextExp = expenses.filter((e) => e.raceId !== id);
     setRaces(next);
     setExpenses(nextExp);
-    await saveShared("ctm-races", next);
-    await saveShared("ctm-expenses", nextExp);
+    await kvDelete("ctm-race-item:" + id);
+    for (const eid of removedExpenseIds) {
+      await kvDelete("ctm-expense-item:" + eid);
+      try {
+        await kvDelete("ctm-receipt:" + eid);
+      } catch (e) {
+      }
+    }
     refreshQueueCount();
     setOpenRaceId(null);
     showToast("Pretek zmazan\xFD");
@@ -505,21 +588,21 @@ function App() {
   const addExpense = async (expense) => {
     const next = [...expenses, expense];
     setExpenses(next);
-    const r = await saveShared("ctm-expenses", next);
+    const r = await saveShared("ctm-expense-item:" + expense.id, expense);
     showToast(r.queued ? "Blo\u010Dek ulo\u017Een\xFD (offline, zosynchronizuje sa)" : "Blo\u010Dek ulo\u017Een\xFD");
     refreshQueueCount();
   };
   const updateExpense = async (expense) => {
     const next = expenses.map((e) => e.id === expense.id ? expense : e);
     setExpenses(next);
-    const r = await saveShared("ctm-expenses", next);
+    const r = await saveShared("ctm-expense-item:" + expense.id, expense);
     showToast(r.queued ? "Zmeny ulo\u017Een\xE9 (offline, zosynchronizuje sa)" : "Zmeny ulo\u017Een\xE9");
     refreshQueueCount();
   };
   const deleteExpense = async (id) => {
     const next = expenses.filter((e) => e.id !== id);
     setExpenses(next);
-    await saveShared("ctm-expenses", next);
+    await kvDelete("ctm-expense-item:" + id);
     try {
       await kvDelete("ctm-receipt:" + id);
     } catch (e) {
@@ -760,16 +843,34 @@ function ExpenseRow({ expense }) {
   const cat = CAT_MAP[expense.category];
   return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0", style: { backgroundColor: cat.color + "1A", color: cat.color } }, /* @__PURE__ */ React.createElement(cat.Icon, { size: 17 })), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate flex items-center gap-1.5" }, expense.vendor || cat.label, expense.paidFrom === "personal" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded shrink-0" }, "Osobn\xE9")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
 }
+function normalizeSearch(s) {
+  return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 function CalendarScreen({ races, isCoordinator, onOpenRace, onAddRace }) {
   const [viewType, setViewType] = useState("race");
+  const [query, setQuery] = useState("");
   const t = todayISO();
   const filtered = races.filter((r) => (r.eventType || "race") === viewType);
-  const upcoming = filtered.filter((r) => r.endDate >= t).sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const past = filtered.filter((r) => r.endDate < t).sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const q = normalizeSearch(query.trim());
+  const searched = q ? filtered.filter((r) => {
+    const haystack = normalizeSearch(`${r.name} ${r.location} ${fmtDate(r.startDate)} ${fmtDate(r.endDate)} ${r.startDate} ${r.endDate}`);
+    return haystack.includes(q);
+  }) : filtered;
+  const upcoming = searched.filter((r) => r.endDate >= t).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const past = searched.filter((r) => r.endDate < t).sort((a, b) => b.startDate.localeCompare(a.startDate));
   const noun = viewType === "race" ? "pretek" : "tr\xE9ning";
   const nounPl = viewType === "race" ? "preteky" : "tr\xE9ningy";
   const nounGenPl = viewType === "race" ? "pretekov" : "tr\xE9ningov";
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("race"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "race" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Preteky"), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("training"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "training" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Tr\xE9ningy")), isCoordinator && /* @__PURE__ */ React.createElement("button", { onClick: () => onAddRace(viewType), className: "w-full border-2 border-dashed border-gray-300 text-gray-500 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium mb-6 hover:border-violet-600 hover:text-violet-600" }, "\uFF0B Prida\u0165 ", noun), /* @__PURE__ */ React.createElement(Section, { title: `Nadch\xE1dzaj\xFAce ${nounPl}` }, upcoming.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: `\u017Diadne napl\xE1novan\xE9 ${nounGenPl}` }), upcoming.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))), /* @__PURE__ */ React.createElement(Section, { title: `Prebehnut\xE9 ${nounPl}` }, past.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: `Zatia\u013E \u017Eiadne odjazden\xE9 ${nounGenPl}` }), past.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))));
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "relative mb-4" }, /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "text",
+      value: query,
+      onChange: (e) => setQuery(e.target.value),
+      placeholder: `H\u013Eada\u0165 ${nounPl} pod\u013Ea n\xE1zvu, miesta alebo d\xE1tumu...`,
+      className: "input pl-3 pr-8"
+    }
+  ), query && /* @__PURE__ */ React.createElement("button", { onClick: () => setQuery(""), className: "absolute right-2 top-1/2 -translate-y-1/2 text-gray-400" }, /* @__PURE__ */ React.createElement(Icon.Close, { size: 14 }))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("race"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "race" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Preteky"), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("training"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "training" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Tr\xE9ningy")), isCoordinator && /* @__PURE__ */ React.createElement("button", { onClick: () => onAddRace(viewType), className: "w-full border-2 border-dashed border-gray-300 text-gray-500 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium mb-6 hover:border-violet-600 hover:text-violet-600" }, "\uFF0B Prida\u0165 ", noun), /* @__PURE__ */ React.createElement(Section, { title: `Nadch\xE1dzaj\xFAce ${nounPl}` }, upcoming.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: q ? "Ni\u010D nen\xE1jden\xE9" : `\u017Diadne napl\xE1novan\xE9 ${nounGenPl}` }), upcoming.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))), /* @__PURE__ */ React.createElement(Section, { title: `Prebehnut\xE9 ${nounPl}` }, past.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: q ? "Ni\u010D nen\xE1jden\xE9" : `Zatia\u013E \u017Eiadne odjazden\xE9 ${nounGenPl}` }), past.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))));
 }
 function Section({ title, children }) {
   return /* @__PURE__ */ React.createElement("div", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, title), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, children));
@@ -1143,7 +1244,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
     await onSave(expense);
     setSaving(false);
   };
-  return /* @__PURE__ */ React.createElement(ModalShell, { title: isEditing ? "Upravi\u0165 blo\u010Dek" : "Nov\xFD blo\u010Dek", onClose, footer: /* @__PURE__ */ React.createElement("button", { disabled: !canSave || saving, onClick: handleSave, className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2" }, saving && /* @__PURE__ */ React.createElement("span", { className: "w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" }), isEditing ? "Ulo\u017Ei\u0165 zmeny" : "Ulo\u017Ei\u0165 blo\u010Dek") }, loadingReceipt && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 text-center py-2 mb-2" }, "Na\u010D\xEDtavam blo\u010Dek..."), !imageDataUrl ? /* @__PURE__ */ React.createElement("label", { className: "w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center justify-center gap-2 text-gray-500 mb-4 cursor-pointer hover:border-violet-600 hover:text-violet-600" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 26 }), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium" }, "Odfoti\u0165 / vybra\u0165 blo\u010Dek"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", className: "hidden", onChange: (e) => {
+  return /* @__PURE__ */ React.createElement(ModalShell, { title: isEditing ? "Upravi\u0165 blo\u010Dek" : "Nov\xFD blo\u010Dek", onClose, footer: /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 text-center mb-2" }, "Pred odoslan\xEDm skontroluj \xFAdaje \u2013 automatick\xE9 rozpozn\xE1vanie nemus\xED by\u0165 v\u017Edy presn\xE9."), /* @__PURE__ */ React.createElement("button", { disabled: !canSave || saving, onClick: handleSave, className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2" }, saving && /* @__PURE__ */ React.createElement("span", { className: "w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" }), isEditing ? "Ulo\u017Ei\u0165 zmeny" : "Ulo\u017Ei\u0165 blo\u010Dek")) }, loadingReceipt && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 text-center py-2 mb-2" }, "Na\u010D\xEDtavam blo\u010Dek..."), !imageDataUrl ? /* @__PURE__ */ React.createElement("label", { className: "w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center justify-center gap-2 text-gray-500 mb-4 cursor-pointer hover:border-violet-600 hover:text-violet-600" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 26 }), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium" }, "Odfoti\u0165 / vybra\u0165 blo\u010Dek"), /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", className: "hidden", onChange: (e) => {
     var _a2;
     return handleFile((_a2 = e.target.files) == null ? void 0 : _a2[0]);
   } })) : /* @__PURE__ */ React.createElement("div", { className: "relative mb-4" }, /* @__PURE__ */ React.createElement("img", { src: imageDataUrl, alt: "Blo\u010Dek", className: "w-full max-h-56 object-cover rounded-xl border border-gray-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => {
