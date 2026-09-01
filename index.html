@@ -397,6 +397,7 @@ function App() {
   const [openRaceId, setOpenRaceId] = useState(null);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showAddRace, setShowAddRace] = useState(false);
+  const [addRaceDefaultType, setAddRaceDefaultType] = useState("race");
   const [prefillRaceId, setPrefillRaceId] = useState(null);
   const [toast, setToast] = useState(null);
   const isCoordinator = COORDINATORS.includes(currentUser);
@@ -590,7 +591,10 @@ function App() {
         setShowAddExpense(true);
       }
     }
-  ) : tab === "calendar" ? /* @__PURE__ */ React.createElement(CalendarScreen, { races, isCoordinator, onOpenRace: setOpenRaceId, onAddRace: () => setShowAddRace(true) }) : /* @__PURE__ */ React.createElement(StatsScreen, { races, expenses })), !openRace && /* @__PURE__ */ React.createElement(BottomNav, { tab, setTab }), showAddExpense && /* @__PURE__ */ React.createElement(
+  ) : tab === "calendar" ? /* @__PURE__ */ React.createElement(CalendarScreen, { races, isCoordinator, onOpenRace: setOpenRaceId, onAddRace: (type) => {
+    setAddRaceDefaultType(type);
+    setShowAddRace(true);
+  } }) : /* @__PURE__ */ React.createElement(StatsScreen, { races, expenses })), !openRace && /* @__PURE__ */ React.createElement(BottomNav, { tab, setTab }), showAddExpense && /* @__PURE__ */ React.createElement(
     AddExpenseModal,
     {
       races,
@@ -619,7 +623,7 @@ function App() {
         setEditingExpense(null);
       }
     }
-  ), showAddRace && /* @__PURE__ */ React.createElement(AddRaceModal, { onClose: () => setShowAddRace(false), onSave: addRace }), toast && /* @__PURE__ */ React.createElement("div", { className: "fixed bottom-24 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50" }, toast));
+  ), showAddRace && /* @__PURE__ */ React.createElement(AddRaceModal, { defaultType: addRaceDefaultType, onClose: () => setShowAddRace(false), onSave: addRace }), toast && /* @__PURE__ */ React.createElement("div", { className: "fixed bottom-24 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50" }, toast));
 }
 function CenterSpinner() {
   return /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center h-64" }, /* @__PURE__ */ React.createElement("div", { className: "w-7 h-7 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" }));
@@ -750,17 +754,22 @@ function HomeScreen({ races, expenses, onOpenRace, onQuickAdd }) {
   const featured = current || next;
   const featuredSpend = featured ? expenses.filter((e) => e.raceId === featured.id).reduce((s, e) => s + e.amountEUR, 0) : 0;
   const daysUntil = (iso) => Math.round((/* @__PURE__ */ new Date(iso + "T00:00:00") - /* @__PURE__ */ new Date(t + "T00:00:00")) / 864e5);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-violet-600 text-white rounded-xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 20 }), " Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend)))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-6 text-center mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-2 text-gray-300" }, /* @__PURE__ */ React.createElement(Icon.Calendar, { size: 28 })), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-violet-600 text-white rounded-xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 20 }), " Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, (featured.eventType || "race") === "training" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold uppercase text-violet-600 bg-violet-50 px-2 py-1 rounded" }, "Tr\xE9ning"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend)))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-6 text-center mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-2 text-gray-300" }, /* @__PURE__ */ React.createElement(Icon.Calendar, { size: 28 })), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
 }
 function ExpenseRow({ expense }) {
   const cat = CAT_MAP[expense.category];
   return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0", style: { backgroundColor: cat.color + "1A", color: cat.color } }, /* @__PURE__ */ React.createElement(cat.Icon, { size: 17 })), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate flex items-center gap-1.5" }, expense.vendor || cat.label, expense.paidFrom === "personal" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded shrink-0" }, "Osobn\xE9")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
 }
 function CalendarScreen({ races, isCoordinator, onOpenRace, onAddRace }) {
+  const [viewType, setViewType] = useState("race");
   const t = todayISO();
-  const upcoming = races.filter((r) => r.endDate >= t).sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const past = races.filter((r) => r.endDate < t).sort((a, b) => b.startDate.localeCompare(a.startDate));
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, isCoordinator && /* @__PURE__ */ React.createElement("button", { onClick: onAddRace, className: "w-full border-2 border-dashed border-gray-300 text-gray-500 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium mb-6 hover:border-violet-600 hover:text-violet-600" }, "\uFF0B Prida\u0165 pretek"), /* @__PURE__ */ React.createElement(Section, { title: "Nadch\xE1dzaj\xFAce preteky" }, upcoming.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "\u017Diadne napl\xE1novan\xE9 preteky" }), upcoming.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))), /* @__PURE__ */ React.createElement(Section, { title: "Prebehnut\xE9 preteky" }, past.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne odjazden\xE9 preteky" }), past.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))));
+  const filtered = races.filter((r) => (r.eventType || "race") === viewType);
+  const upcoming = filtered.filter((r) => r.endDate >= t).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const past = filtered.filter((r) => r.endDate < t).sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const noun = viewType === "race" ? "pretek" : "tr\xE9ning";
+  const nounPl = viewType === "race" ? "preteky" : "tr\xE9ningy";
+  const nounGenPl = viewType === "race" ? "pretekov" : "tr\xE9ningov";
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("race"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "race" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Preteky"), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("training"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "training" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Tr\xE9ningy")), isCoordinator && /* @__PURE__ */ React.createElement("button", { onClick: () => onAddRace(viewType), className: "w-full border-2 border-dashed border-gray-300 text-gray-500 rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium mb-6 hover:border-violet-600 hover:text-violet-600" }, "\uFF0B Prida\u0165 ", noun), /* @__PURE__ */ React.createElement(Section, { title: `Nadch\xE1dzaj\xFAce ${nounPl}` }, upcoming.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: `\u017Diadne napl\xE1novan\xE9 ${nounGenPl}` }), upcoming.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))), /* @__PURE__ */ React.createElement(Section, { title: `Prebehnut\xE9 ${nounPl}` }, past.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: `Zatia\u013E \u017Eiadne odjazden\xE9 ${nounGenPl}` }), past.map((r) => /* @__PURE__ */ React.createElement(RaceRow, { key: r.id, race: r, onClick: () => onOpenRace(r.id) }))));
 }
 function Section({ title, children }) {
   return /* @__PURE__ */ React.createElement("div", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, title), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, children));
@@ -1013,21 +1022,24 @@ function ModalShell({ title, onClose, footer, children }) {
 function Field({ label, children }) {
   return /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-medium text-gray-500 mb-1.5" }, label), children);
 }
-function AddRaceModal({ onClose, onSave }) {
+function AddRaceModal({ defaultType, onClose, onSave }) {
+  const [eventType, setEventType] = useState(defaultType === "training" ? "training" : "race");
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [startDate, setStartDate] = useState(todayISO());
   const [endDate, setEndDate] = useState(todayISO());
   const canSave = name.trim() && location.trim() && startDate && endDate && startDate <= endDate;
-  return /* @__PURE__ */ React.createElement(ModalShell, { title: "Nov\xFD pretek", onClose, footer: /* @__PURE__ */ React.createElement(
+  const noun = eventType === "race" ? "pretek" : "tr\xE9ning";
+  return /* @__PURE__ */ React.createElement(ModalShell, { title: eventType === "race" ? "Nov\xFD pretek" : "Nov\xFD tr\xE9ning", onClose, footer: /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: !canSave,
-      onClick: () => onSave({ name: name.trim(), location: location.trim(), startDate, endDate }),
+      onClick: () => onSave({ name: name.trim(), location: location.trim(), startDate, endDate, eventType }),
       className: "w-full bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl py-3.5 font-semibold text-sm"
     },
-    "Ulo\u017Ei\u0165 pretek"
-  ) }, /* @__PURE__ */ React.createElement(Field, { label: "N\xE1zov preteku" }, /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "napr. Mal\xE1 Fatra Enduro", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Miesto" }, /* @__PURE__ */ React.createElement("input", { value: location, onChange: (e) => setLocation(e.target.value), placeholder: "napr. Terchov\xE1", className: "input" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Od" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Do" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value), className: "input" }))));
+    "Ulo\u017Ei\u0165 ",
+    noun
+  ) }, /* @__PURE__ */ React.createElement(Field, { label: "Typ udalosti" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEventType("race"), className: `rounded-lg py-2.5 text-sm font-semibold border ${eventType === "race" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Pretek"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEventType("training"), className: `rounded-lg py-2.5 text-sm font-semibold border ${eventType === "training" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Tr\xE9ning"))), /* @__PURE__ */ React.createElement(Field, { label: `N\xE1zov ${eventType === "race" ? "preteku" : "tr\xE9ningu"}` }, /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: eventType === "race" ? "napr. Mal\xE1 Fatra Enduro" : "napr. S\xFAstredenie Kop\u0159ivn\xE1", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Miesto" }, /* @__PURE__ */ React.createElement("input", { value: location, onChange: (e) => setLocation(e.target.value), placeholder: "napr. Terchov\xE1", className: "input" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Od" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Do" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value), className: "input" }))));
 }
 function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, onClose, onSave }) {
   var _a, _b;
@@ -1170,18 +1182,23 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
 }
 function StatsScreen({ races, expenses }) {
   const [exportingYear, setExportingYear] = useState(false);
+  const [viewType, setViewType] = useState("race");
+  const typedRaces = races.filter((r) => (r.eventType || "race") === viewType);
   const years = useMemo(() => {
-    const s = new Set(races.map((r) => r.startDate.slice(0, 4)));
+    const s = new Set(typedRaces.map((r) => r.startDate.slice(0, 4)));
     if (s.size === 0) s.add(String((/* @__PURE__ */ new Date()).getFullYear()));
     return Array.from(s).sort((a, b) => b.localeCompare(a));
-  }, [races]);
+  }, [typedRaces]);
   const [year, setYear] = useState(years[0]);
-  const yearRaceIds = new Set(races.filter((r) => r.startDate.startsWith(year)).map((r) => r.id));
+  useEffect(() => {
+    if (!years.includes(year)) setYear(years[0]);
+  }, [years]);
+  const yearRaceIds = new Set(typedRaces.filter((r) => r.startDate.startsWith(year)).map((r) => r.id));
   const yearExpenses = expenses.filter((e) => yearRaceIds.has(e.raceId));
   const total = yearExpenses.reduce((s, e) => s + e.amountEUR, 0);
   const byCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: yearExpenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0).sort((a, b) => b.sum - a.sum);
   const byPerson = ALL_MEMBERS.map((name) => ({ name, sum: yearExpenses.filter((e) => e.addedBy === name).reduce((s, e) => s + e.amountEUR, 0), count: yearExpenses.filter((e) => e.addedBy === name).length })).filter((p) => p.count > 0).sort((a, b) => b.sum - a.sum);
-  const raceCount = races.filter((r) => r.startDate.startsWith(year)).length;
+  const raceCount = typedRaces.filter((r) => r.startDate.startsWith(year)).length;
   let acc = 0;
   const gradientParts = byCategory.map((c) => {
     const pct = total ? c.sum / total * 100 : 0;
@@ -1190,14 +1207,14 @@ function StatsScreen({ races, expenses }) {
     return part;
   });
   const donutStyle = byCategory.length ? { background: `conic-gradient(${gradientParts.join(",")})` } : { background: "#E5E7EB" };
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5 overflow-x-auto" }, years.map((y) => /* @__PURE__ */ React.createElement("button", { key: y, onClick: () => setYear(y), className: `px-4 py-1.5 rounded-md text-sm font-semibold whitespace-nowrap ${y === year ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-500"}` }, y))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Celkov\xFD cashflow ", year), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-3" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-xs text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement("span", null, raceCount, " pretekov"), /* @__PURE__ */ React.createElement("span", null, yearExpenses.length, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("race"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "race" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Preteky"), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewType("training"), className: `rounded-lg py-2.5 text-sm font-semibold border ${viewType === "training" ? "bg-gray-900 text-white border-gray-900" : "bg-white border-gray-200 text-gray-500"}` }, "Tr\xE9ningy")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5 overflow-x-auto" }, years.map((y) => /* @__PURE__ */ React.createElement("button", { key: y, onClick: () => setYear(y), className: `px-4 py-1.5 rounded-md text-sm font-semibold whitespace-nowrap ${y === year ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-500"}` }, y))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Celkov\xFD cashflow ", year), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-3" }, fmtEUR(total)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-xs text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement("span", null, raceCount, " pretekov"), /* @__PURE__ */ React.createElement("span", null, yearExpenses.length, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: yearExpenses.length === 0 || exportingYear,
       onClick: async () => {
         setExportingYear(true);
         try {
-          await buildReceiptsPdf(`CTM Racing Team \u2013 ${year}`, `${raceCount} pretekov \xB7 ${yearExpenses.length} blo\u010Dkov`, yearExpenses, races.filter((r) => r.startDate.startsWith(year)), `CTM-${year}-blocky.pdf`);
+          await buildReceiptsPdf(`CTM Racing Team \u2013 ${year}`, `${raceCount} pretekov \xB7 ${yearExpenses.length} blo\u010Dkov`, yearExpenses, typedRaces.filter((r) => r.startDate.startsWith(year)), `CTM-${year}-blocky.pdf`);
         } catch (err) {
           alert("Export sa nepodaril: " + err.message);
         }
