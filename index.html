@@ -668,6 +668,7 @@ function App() {
     {
       races,
       expenses,
+      currentUser,
       onOpenRace: setOpenRaceId,
       onQuickAdd: () => {
         setPrefillRaceId(null);
@@ -677,12 +678,13 @@ function App() {
   ) : tab === "calendar" ? /* @__PURE__ */ React.createElement(CalendarScreen, { races, isCoordinator, onOpenRace: setOpenRaceId, onAddRace: (type) => {
     setAddRaceDefaultType(type);
     setShowAddRace(true);
-  } }) : /* @__PURE__ */ React.createElement(StatsScreen, { races, expenses })), !openRace && /* @__PURE__ */ React.createElement(BottomNav, { tab, setTab }), showAddExpense && /* @__PURE__ */ React.createElement(
+  } }) : /* @__PURE__ */ React.createElement(StatsScreen, { races, expenses, isCoordinator, onDataRestored: refreshAll })), !openRace && /* @__PURE__ */ React.createElement(BottomNav, { tab, setTab }), showAddExpense && /* @__PURE__ */ React.createElement(
     AddExpenseModal,
     {
       races,
       defaultRaceId: prefillRaceId,
       currentUser,
+      isCoordinator,
       onClose: () => setShowAddExpense(false),
       onSave: async (expense) => {
         await addExpense(expense);
@@ -695,6 +697,7 @@ function App() {
       races,
       defaultRaceId: editingExpense.raceId,
       currentUser,
+      isCoordinator,
       editingExpense,
       onClose: () => {
         setShowEditModal(false);
@@ -830,18 +833,27 @@ function PinScreen({ name, hasExistingPin, onBack, onVerify, onCreate, onSuccess
     hasExistingPin ? "Prihl\xE1si\u0165 sa" : "Vytvori\u0165 a prihl\xE1si\u0165 sa"
   )));
 }
-function HomeScreen({ races, expenses, onOpenRace, onQuickAdd }) {
+function HomeScreen({ races, expenses, currentUser, onOpenRace, onQuickAdd }) {
   const t = todayISO();
   const current = races.find((r) => t >= r.startDate && t <= r.endDate);
   const next = races.filter((r) => r.startDate > t).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
   const featured = current || next;
-  const featuredSpend = featured ? expenses.filter((e) => e.raceId === featured.id).reduce((s, e) => s + e.amountEUR, 0) : 0;
+  const featuredExpenses = featured ? expenses.filter((e) => e.raceId === featured.id) : [];
+  const featuredSpend = featuredExpenses.reduce((s, e) => s + e.amountEUR, 0);
+  const featuredByCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: featuredExpenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0);
   const daysUntil = (iso) => Math.round((/* @__PURE__ */ new Date(iso + "T00:00:00") - /* @__PURE__ */ new Date(t + "T00:00:00")) / 864e5);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-violet-600 text-white rounded-xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 20 }), " Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, (featured.eventType || "race") === "training" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold uppercase text-violet-600 bg-violet-50 px-2 py-1 rounded" }, "Tr\xE9ning"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend)))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-6 text-center mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-2 text-gray-300" }, /* @__PURE__ */ React.createElement(Icon.Calendar, { size: 28 })), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
+  const monthPrefix = t.slice(0, 7);
+  const yearPrefix = t.slice(0, 4);
+  const monthTotal = expenses.filter((e) => e.date.startsWith(monthPrefix)).reduce((s, e) => s + e.amountEUR, 0);
+  const yearTotal = expenses.filter((e) => e.date.startsWith(yearPrefix)).reduce((s, e) => s + e.amountEUR, 0);
+  const upcomingCount = races.filter((r) => r.endDate >= t).length;
+  const myYearSpend = expenses.filter((e) => e.date.startsWith(yearPrefix) && e.addedBy === currentUser).reduce((s, e) => s + e.amountEUR, 0);
+  const myYearCount = expenses.filter((e) => e.date.startsWith(yearPrefix) && e.addedBy === currentUser).length;
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-violet-600 text-white rounded-xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 20 }), " Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, (featured.eventType || "race") === "training" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold uppercase text-violet-600 bg-violet-50 px-2 py-1 rounded" }, "Tr\xE9ning"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend))), featuredByCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex w-full h-1.5 rounded-full overflow-hidden bg-gray-100" }, featuredByCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, style: { width: `${c.sum / featuredSpend * 100}%`, backgroundColor: c.color } }))))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-6 text-center mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-2 text-gray-300" }, /* @__PURE__ */ React.createElement(Icon.Calendar, { size: 28 })), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "mono text-lg font-bold" }, fmtEUR(monthTotal)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-gray-400 mt-0.5" }, "Tento mesiac")), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "mono text-lg font-bold" }, fmtEUR(yearTotal)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-gray-400 mt-0.5" }, "Tento rok")), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "mono text-lg font-bold" }, upcomingCount), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-gray-400 mt-0.5" }, "Nadch\xE1dza"))), myYearCount > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between text-xs text-gray-400 mb-5 px-1" }, /* @__PURE__ */ React.createElement("span", null, "Tvoj podiel tento rok"), /* @__PURE__ */ React.createElement("span", { className: "mono font-semibold text-gray-600" }, fmtEUR(myYearSpend), " \xB7 ", myYearCount, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
 }
 function ExpenseRow({ expense }) {
   const cat = CAT_MAP[expense.category];
-  return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0", style: { backgroundColor: cat.color + "1A", color: cat.color } }, /* @__PURE__ */ React.createElement(cat.Icon, { size: 17 })), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate flex items-center gap-1.5" }, expense.vendor || cat.label, expense.paidFrom === "personal" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded shrink-0" }, "Osobn\xE9")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
+  return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0", style: { backgroundColor: cat.color + "1A", color: cat.color } }, /* @__PURE__ */ React.createElement(cat.Icon, { size: 17 })), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate flex items-center gap-1.5" }, expense.vendor || cat.label, expense.paidFrom === "personal" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded shrink-0" }, "Osobn\xE9")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.paidFrom === "personal" && expense.paidByPerson && expense.paidByPerson !== expense.addedBy ? `Zaplatil ${expense.paidByPerson} \xB7 pridal ${expense.addedBy}` : expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
 }
 function normalizeSearch(s) {
   return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -995,6 +1007,61 @@ async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
   }
   doc.save(filename);
 }
+async function buildFullBackup(races, expenses, onProgress) {
+  const receipts = {};
+  let done = 0;
+  for (const e of expenses) {
+    try {
+      const img = await kvGet("ctm-receipt:" + e.id);
+      if (img) receipts[e.id] = img;
+    } catch (err) {
+    }
+    done++;
+    if (onProgress) onProgress(done, expenses.length);
+  }
+  const backup = {
+    app: "CTM Racing Team - Financial",
+    version: 1,
+    exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    races,
+    expenses,
+    receipts
+  };
+  const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ctm-financial-zaloha-${todayISO()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+async function restoreFromBackup(file, onProgress) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  if (!Array.isArray(data.races) || !Array.isArray(data.expenses)) {
+    throw new Error("S\xFAbor nevyzer\xE1 ako platn\xE1 z\xE1loha appky.");
+  }
+  const total = data.races.length + data.expenses.length + Object.keys(data.receipts || {}).length;
+  let done = 0;
+  for (const r of data.races) {
+    if (r == null ? void 0 : r.id) await kvSet("ctm-race-item:" + r.id, r);
+    done++;
+    if (onProgress) onProgress(done, total);
+  }
+  for (const e of data.expenses) {
+    if (e == null ? void 0 : e.id) await kvSet("ctm-expense-item:" + e.id, e);
+    done++;
+    if (onProgress) onProgress(done, total);
+  }
+  for (const [id, img] of Object.entries(data.receipts || {})) {
+    await kvSet("ctm-receipt:" + id, img);
+    done++;
+    if (onProgress) onProgress(done, total);
+  }
+  return { races: data.races.length, expenses: data.expenses.length, receipts: Object.keys(data.receipts || {}).length };
+}
 function exportExpensesToExcel(expenses, races, filename) {
   const rows = expenses.map((e) => {
     var _a;
@@ -1057,11 +1124,14 @@ function exportExpensesToExcel(expenses, races, filename) {
 }
 function RaceDetail({ race, expenses, races, currentUser, isCoordinator, onBack, onDeleteExpense, onEditExpense, onAddExpense, onDeleteRace }) {
   const [exporting, setExporting] = useState(false);
+  const isTraining = (race.eventType || "race") === "training";
+  const nounDat = isTraining ? "tr\xE9ningu" : "preteku";
+  const nounNom = isTraining ? "tr\xE9ning" : "pretek";
   const total = expenses.reduce((s, e) => s + e.amountEUR, 0);
   const teamTotal = expenses.filter((e) => e.paidFrom !== "personal").reduce((s, e) => s + e.amountEUR, 0);
   const personalTotal = total - teamTotal;
   const byCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: expenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0);
-  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-1" }, fmtEUR(total)), personalTotal > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-4" }, "T\xEDmov\xE9: ", fmtEUR(teamTotal), " \xB7 Osobn\xE9: ", fmtEUR(personalTotal)), personalTotal === 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-3" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 18 }), " Prida\u0165 blo\u010Dek k tomuto preteku"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "flex items-center gap-1 text-sm text-gray-500 mb-4" }, "\u2039 Sp\xE4\u0165"), /* @__PURE__ */ React.createElement("div", { className: "mb-1 mono text-2xl font-bold tracking-tight" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-5" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", race.location, " \xB7 ", fmtDate(race.startDate), " \u2013 ", fmtDate(race.endDate)), /* @__PURE__ */ React.createElement("div", { className: "bg-gray-900 text-white rounded-xl p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-1" }, "Vy\xFA\u010Dtovanie v\xEDkendu"), /* @__PURE__ */ React.createElement("div", { className: "mono text-3xl font-bold mb-1" }, fmtEUR(total)), personalTotal > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-4" }, "T\xEDmov\xE9: ", fmtEUR(teamTotal), " \xB7 Osobn\xE9: ", fmtEUR(personalTotal)), personalTotal === 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-300 w-28 truncate" }, c.label), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full", style: { width: `${total ? c.sum / total * 100 : 0}%`, backgroundColor: c.color } })), /* @__PURE__ */ React.createElement("span", { className: "mono text-xs w-16 text-right" }, fmtEUR(c.sum)))), byCategory.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Zatia\u013E \u017Eiadne blo\u010Dky"))), /* @__PURE__ */ React.createElement("button", { onClick: onAddExpense, className: "w-full bg-violet-600 text-white rounded-xl py-3.5 flex items-center justify-center gap-2 font-semibold text-sm mb-3" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 18 }), " Prida\u0165 blo\u010Dek k tomuto ", nounDat), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
       disabled: exporting || expenses.length === 0,
@@ -1091,9 +1161,9 @@ function RaceDetail({ race, expenses, races, currentUser, isCoordinator, onBack,
       className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-3 flex items-center justify-center gap-2 font-semibold text-sm"
     },
     "Excel"
-  )), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Blo\u010Dky (", expenses.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((e) => /* @__PURE__ */ React.createElement(SwipeableExpense, { key: e.id, expense: e, canDelete: isCoordinator || e.addedBy === currentUser, onDelete: () => onDeleteExpense(e.id), onEdit: () => onEditExpense(e) })), expenses.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: "Zatia\u013E \u017Eiadne blo\u010Dky k tomuto preteku" })), onDeleteRace && /* @__PURE__ */ React.createElement("button", { onClick: () => {
-    if (confirm(`Naozaj zmaza\u0165 pretek "${race.name}" a v\u0161etky jeho blo\u010Dky?`)) onDeleteRace();
-  }, className: "w-full text-red-500 text-xs font-medium py-3 flex items-center justify-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icon.Trash, null), " Zmaza\u0165 pretek"));
+  )), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Blo\u010Dky (", expenses.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((e) => /* @__PURE__ */ React.createElement(SwipeableExpense, { key: e.id, expense: e, canDelete: isCoordinator || e.addedBy === currentUser, onDelete: () => onDeleteExpense(e.id), onEdit: () => onEditExpense(e) })), expenses.length === 0 && /* @__PURE__ */ React.createElement(EmptyRow, { text: `Zatia\u013E \u017Eiadne blo\u010Dky k tomuto ${nounDat}` })), onDeleteRace && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    if (confirm(`Naozaj zmaza\u0165 ${nounNom} "${race.name}" a v\u0161etky jeho blo\u010Dky?`)) onDeleteRace();
+  }, className: "w-full text-red-500 text-xs font-medium py-3 flex items-center justify-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icon.Trash, null), " Zmaza\u0165 ", nounNom));
 }
 function SwipeableExpense({ expense, canDelete, onDelete, onEdit }) {
   const [open, setOpen] = useState(false);
@@ -1142,7 +1212,7 @@ function AddRaceModal({ defaultType, onClose, onSave }) {
     noun
   ) }, /* @__PURE__ */ React.createElement(Field, { label: "Typ udalosti" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEventType("race"), className: `rounded-lg py-2.5 text-sm font-semibold border ${eventType === "race" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Pretek"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEventType("training"), className: `rounded-lg py-2.5 text-sm font-semibold border ${eventType === "training" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Tr\xE9ning"))), /* @__PURE__ */ React.createElement(Field, { label: `N\xE1zov ${eventType === "race" ? "preteku" : "tr\xE9ningu"}` }, /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: eventType === "race" ? "napr. Mal\xE1 Fatra Enduro" : "napr. S\xFAstredenie Kop\u0159ivn\xE1", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Miesto" }, /* @__PURE__ */ React.createElement("input", { value: location, onChange: (e) => setLocation(e.target.value), placeholder: "napr. Terchov\xE1", className: "input" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Od" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Do" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value), className: "input" }))));
 }
-function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, onClose, onSave }) {
+function AddExpenseModal({ races, defaultRaceId, currentUser, isCoordinator, editingExpense, onClose, onSave }) {
   var _a, _b;
   const t = todayISO();
   const sorted = races.slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -1157,6 +1227,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
   const [vendor, setVendor] = useState(isEditing ? editingExpense.vendor || "" : "");
   const [category, setCategory] = useState(isEditing ? editingExpense.category : "phm");
   const [paidFrom, setPaidFrom] = useState(isEditing ? editingExpense.paidFrom || "team" : "team");
+  const [paidByPerson, setPaidByPerson] = useState(isEditing ? editingExpense.paidByPerson || editingExpense.addedBy || currentUser : currentUser);
   const [country, setCountry] = useState(isEditing ? editingExpense.country || "SK" : "SK");
   const [vatRate, setVatRate] = useState(isEditing ? (_b = editingExpense.vatRate) != null ? _b : "23" : CATEGORY_VAT_DEFAULT.SK.phm);
   const [raceId, setRaceId] = useState(isEditing ? editingExpense.raceId : fallbackRaceId);
@@ -1223,6 +1294,7 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
       currency,
       paidFrom,
       country,
+      paidByPerson: paidFrom === "personal" ? paidByPerson : null,
       amountEUR: Math.round(amt * fxRate * 100) / 100,
       fxRate,
       fxRateSource: currency === "EUR" ? "n/a" : "frankfurter.dev (ECB)",
@@ -1276,12 +1348,16 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
       /* @__PURE__ */ React.createElement(c.Icon, { size: 16 }),
       c.label
     );
-  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), /* @__PURE__ */ React.createElement(Field, { label: "Sadzba DPH" }, /* @__PURE__ */ React.createElement("select", { value: vatRate, onChange: (e) => {
+  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), paidFrom === "personal" && /* @__PURE__ */ React.createElement(Field, { label: "Kto to re\xE1lne zaplatil? (kto m\xE1 dosta\u0165 peniaze nasp\xE4\u0165)" }, isCoordinator ? /* @__PURE__ */ React.createElement("select", { value: paidByPerson, onChange: (e) => setPaidByPerson(e.target.value), className: "input" }, ALL_MEMBERS.map((m) => /* @__PURE__ */ React.createElement("option", { key: m, value: m }, m))) : /* @__PURE__ */ React.createElement("div", { className: "input bg-gray-50 text-gray-500" }, currentUser), !isCoordinator && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mt-1.5" }, "Len koordin\xE1tor m\xF4\u017Ee priradi\u0165 blo\u010Dek niekomu in\xE9mu.")), /* @__PURE__ */ React.createElement(Field, { label: "Sadzba DPH" }, /* @__PURE__ */ React.createElement("select", { value: vatRate, onChange: (e) => {
     setVatRate(e.target.value);
     setVatAutoDetected(false);
   }, className: "input" }, VAT_RATES.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.value, value: r.value }, r.label))), /* @__PURE__ */ React.createElement("div", { className: `text-xs mt-1.5 flex items-center gap-1.5 ${vatAutoDetected ? "text-green-600" : "text-gray-400"}` }, vatAutoDetected ? /* @__PURE__ */ React.createElement(Icon.Check, { size: 12 }) : /* @__PURE__ */ React.createElement(Icon.Warning, { size: 12 }), vatAutoDetected ? "Rozpoznan\xE9 z blo\u010Dku" : "Nerozpoznan\xE9 z fotky - skontroluj/uprav ru\u010Dne")), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
 }
-function StatsScreen({ races, expenses }) {
+function StatsScreen({ races, expenses, isCoordinator, onDataRestored }) {
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupProgress, setBackupProgress] = useState(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState(null);
   const [exportingYear, setExportingYear] = useState(false);
   const [viewType, setViewType] = useState("race");
   const typedRaces = races.filter((r) => (r.eventType || "race") === viewType);
@@ -1332,7 +1408,53 @@ function StatsScreen({ races, expenses }) {
       className: "border border-gray-300 text-gray-700 disabled:text-gray-300 disabled:border-gray-200 rounded-xl py-2.5 text-sm font-semibold"
     },
     "Excel za rok"
-  ))), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"));
+  ))), byCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea kateg\xF3rie"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-36 h-36 rounded-full", style: donutStyle }, /* @__PURE__ */ React.createElement("div", { className: "w-20 h-20 bg-white rounded-full m-auto relative", style: { marginTop: "32px" } }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, byCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-full", style: { backgroundColor: c.color } }), c.label), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-600" }, fmtEUR(c.sum), " ", /* @__PURE__ */ React.createElement("span", { className: "text-gray-400 text-xs" }, "(", Math.round(c.sum / total * 100), "%)")))))), byPerson.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3" }, "Pod\u013Ea osoby"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, byPerson.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, p.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, p.count, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold" }, fmtEUR(p.sum)))))), yearExpenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-10" }, "Za tento rok zatia\u013E nie s\xFA \u017Eiadne d\xE1ta"), isCoordinator && /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-5 mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1" }, "Z\xE1loha d\xE1t"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mb-3" }, "Odpor\xFA\u010Dame stiahnu\u0165 pravidelne (napr. raz mesa\u010Dne) a ulo\u017Ei\u0165 mimo appky."), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      disabled: backingUp,
+      onClick: async () => {
+        setBackingUp(true);
+        setBackupProgress({ done: 0, total: expenses.length });
+        try {
+          await buildFullBackup(races, expenses, (done, total2) => setBackupProgress({ done, total: total2 }));
+        } catch (err) {
+          alert("Z\xE1loha sa nepodarila: " + err.message);
+        }
+        setBackingUp(false);
+        setBackupProgress(null);
+      },
+      className: "w-full border border-gray-300 text-gray-700 disabled:text-gray-300 rounded-xl py-2.5 text-sm font-semibold mb-2"
+    },
+    backingUp ? `Z\xE1lohujem... ${backupProgress ? `${backupProgress.done}/${backupProgress.total}` : ""}` : "Stiahnu\u0165 kompletn\xFA z\xE1lohu"
+  ), /* @__PURE__ */ React.createElement("label", { className: `w-full block text-center border border-gray-300 text-gray-700 rounded-xl py-2.5 text-sm font-semibold cursor-pointer ${restoring ? "opacity-50 pointer-events-none" : ""}` }, restoring ? "Obnovujem..." : "Obnovi\u0165 zo z\xE1lohy", /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "file",
+      accept: "application/json",
+      className: "hidden",
+      onChange: async (e) => {
+        var _a;
+        const file = (_a = e.target.files) == null ? void 0 : _a[0];
+        if (!file) return;
+        if (!confirm("Obnovenie zo z\xE1lohy prid\xE1/prep\xED\u0161e d\xE1ta v datab\xE1ze pod\u013Ea s\xFAboru. Pokra\u010Dova\u0165?")) {
+          e.target.value = "";
+          return;
+        }
+        setRestoring(true);
+        setRestoreMsg(null);
+        try {
+          const result = await restoreFromBackup(file, () => {
+          });
+          setRestoreMsg(`Hotovo: ${result.races} pretekov, ${result.expenses} blo\u010Dkov, ${result.receipts} fotiek.`);
+          if (onDataRestored) onDataRestored();
+        } catch (err) {
+          setRestoreMsg("Chyba: " + err.message);
+        }
+        setRestoring(false);
+        e.target.value = "";
+      }
+    }
+  )), restoreMsg && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-500 mt-2 text-center" }, restoreMsg)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
 
