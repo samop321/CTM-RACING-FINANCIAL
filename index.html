@@ -104,8 +104,72 @@ const CATEGORIES = [
   { id: "ine", label: "In\xE9", color: "#6B7280", Icon: Icon.Clip }
 ];
 const CAT_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
-const CURRENCIES = ["EUR", "CZK", "PLN"];
-const RATES_TO_EUR = { EUR: 1, CZK: 0.04, PLN: 0.235 };
+const CURRENCIES = ["EUR", "CZK", "PLN", "CHF"];
+const RATES_TO_EUR = { EUR: 1, CZK: 0.04, PLN: 0.235, CHF: 1.04 };
+const _fxCache = {};
+async function getExchangeRateToEUR(currency, dateISO) {
+  var _a;
+  if (currency === "EUR") return 1;
+  const cacheKey = currency + ":" + dateISO;
+  if (_fxCache[cacheKey]) return _fxCache[cacheKey];
+  try {
+    const res = await fetch(`https://api.frankfurter.dev/v1/${dateISO}?base=${currency}&symbols=EUR`);
+    if (!res.ok) throw new Error("FX lookup failed " + res.status);
+    const data = await res.json();
+    const rate = (_a = data == null ? void 0 : data.rates) == null ? void 0 : _a.EUR;
+    if (!rate) throw new Error("No EUR rate in response");
+    _fxCache[cacheKey] = rate;
+    return rate;
+  } catch (e) {
+    console.warn("Live exchange rate failed, using fallback fixed rate", e);
+    return RATES_TO_EUR[currency] || 1;
+  }
+}
+const COUNTRIES = [
+  { code: "SK", label: "Slovensko" },
+  { code: "CZ", label: "\u010Cesko" },
+  { code: "PL", label: "Po\u013Esko" },
+  { code: "AT", label: "Rak\xFAsko" },
+  { code: "IT", label: "Taliansko" },
+  { code: "FR", label: "Franc\xFAzsko" },
+  { code: "CH", label: "\u0160vaj\u010Diarsko" }
+];
+const VAT_RATES = [
+  { value: "0", label: "Bez DPH / neplatite\u013E" },
+  { value: "23", label: "23 % (SR z\xE1kladn\xE1)" },
+  { value: "19", label: "19 % (SR zn\xED\u017Een\xE1)" },
+  { value: "5", label: "5 % (SR super-zn\xED\u017Een\xE1)" },
+  { value: "21", label: "21 % (\u010CR z\xE1kladn\xE1)" },
+  { value: "12", label: "12 % (\u010CR zn\xED\u017Een\xE1)" },
+  { value: "23pl", label: "23 % (PL z\xE1kladn\xE1)" },
+  { value: "8pl", label: "8 % (PL zn\xED\u017Een\xE1)" },
+  { value: "5pl", label: "5 % (PL zn\xED\u017Een\xE1)" },
+  { value: "20at", label: "20 % (AT z\xE1kladn\xE1)" },
+  { value: "13at", label: "13 % (AT zn\xED\u017Een\xE1)" },
+  { value: "10at", label: "10 % (AT zn\xED\u017Een\xE1)" },
+  { value: "22it", label: "22 % (IT z\xE1kladn\xE1)" },
+  { value: "10it", label: "10 % (IT zn\xED\u017Een\xE1)" },
+  { value: "5it", label: "5 % (IT zn\xED\u017Een\xE1)" },
+  { value: "4it", label: "4 % (IT super-zn\xED\u017Een\xE1)" },
+  { value: "20fr", label: "20 % (FR z\xE1kladn\xE1)" },
+  { value: "10fr", label: "10 % (FR zn\xED\u017Een\xE1)" },
+  { value: "5.5fr", label: "5,5 % (FR zn\xED\u017Een\xE1)" },
+  { value: "8.1ch", label: "8,1 % (CH z\xE1kladn\xE1)" },
+  { value: "3.8ch", label: "3,8 % (CH ubytovanie)" },
+  { value: "2.6ch", label: "2,6 % (CH zn\xED\u017Een\xE1)" }
+];
+const CATEGORY_VAT_DEFAULT = {
+  SK: { phm: "23", ubytovanie: "5", lanovka: "23", startovne: "23", jedlo: "5", myto: "23", parkovne: "23", dane: "0", ine: "23" },
+  CZ: { phm: "21", ubytovanie: "12", lanovka: "21", startovne: "21", jedlo: "12", myto: "21", parkovne: "21", dane: "0", ine: "21" },
+  PL: { phm: "23pl", ubytovanie: "8pl", lanovka: "23pl", startovne: "23pl", jedlo: "5pl", myto: "23pl", parkovne: "23pl", dane: "0", ine: "23pl" },
+  AT: { phm: "20at", ubytovanie: "13at", lanovka: "10at", startovne: "20at", jedlo: "10at", myto: "20at", parkovne: "20at", dane: "0", ine: "20at" },
+  IT: { phm: "22it", ubytovanie: "10it", lanovka: "10it", startovne: "22it", jedlo: "10it", myto: "22it", parkovne: "22it", dane: "0", ine: "22it" },
+  FR: { phm: "20fr", ubytovanie: "10fr", lanovka: "10fr", startovne: "20fr", jedlo: "10fr", myto: "20fr", parkovne: "20fr", dane: "0", ine: "20fr" },
+  CH: { phm: "8.1ch", ubytovanie: "3.8ch", lanovka: "8.1ch", startovne: "8.1ch", jedlo: "2.6ch", myto: "8.1ch", parkovne: "8.1ch", dane: "0", ine: "8.1ch" }
+};
+function vatRateNumber(value) {
+  return parseFloat(value) || 0;
+}
 const fmtEUR = (n) => new Intl.NumberFormat("sk-SK", { style: "currency", currency: "EUR" }).format(n || 0);
 const fmtMoney = (n, cur) => new Intl.NumberFormat("sk-SK", { style: "currency", currency: cur }).format(n || 0);
 const fmtDate = (iso) => iso ? new Intl.DateTimeFormat("sk-SK", { day: "numeric", month: "long", year: "numeric" }).format(/* @__PURE__ */ new Date(iso + "T00:00:00")) : "";
@@ -939,6 +1003,7 @@ async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
 }
 function exportExpensesToExcel(expenses, races, filename) {
   const rows = expenses.map((e) => {
+    var _a;
     const race = races.find((r) => r.id === e.raceId);
     const cat = CAT_MAP[e.category];
     return {
@@ -948,6 +1013,11 @@ function exportExpensesToExcel(expenses, races, filename) {
       Suma: e.amount,
       Mena: e.currency,
       "Suma (EUR)": e.amountEUR,
+      "Kurz k EUR": e.currency === "EUR" ? "-" : e.fxRate ? e.fxRate.toFixed(4) : "",
+      Krajina: ((_a = COUNTRIES.find((c) => c.code === e.country)) == null ? void 0 : _a.label) || "",
+      "Sadzba DPH": e.vatRate !== void 0 ? `${vatRateNumber(e.vatRate)} %` : "",
+      "Z\xE1klad dane": e.vatBase !== void 0 ? e.vatBase : "",
+      "DPH suma": e.vatAmount !== void 0 ? e.vatAmount : "",
       "Platen\xE9 z": e.paidFrom === "personal" ? "Osobn\xE9" : "T\xEDmov\xE9",
       Obchod: e.vendor || "",
       "Pridal(a)": e.addedBy,
@@ -968,6 +1038,16 @@ function exportExpensesToExcel(expenses, races, filename) {
     // Mena
     { wch: 14 },
     // Suma (EUR)
+    { wch: 12 },
+    // Kurz k EUR
+    { wch: 12 },
+    // Krajina
+    { wch: 14 },
+    // Sadzba DPH
+    { wch: 14 },
+    // Základ dane
+    { wch: 12 },
+    // DPH suma
     { wch: 14 },
     // Platené z
     { wch: 22 },
@@ -1066,7 +1146,7 @@ function AddRaceModal({ onClose, onSave }) {
   ) }, /* @__PURE__ */ React.createElement(Field, { label: "N\xE1zov preteku" }, /* @__PURE__ */ React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "napr. Mal\xE1 Fatra Enduro", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Miesto" }, /* @__PURE__ */ React.createElement("input", { value: location, onChange: (e) => setLocation(e.target.value), placeholder: "napr. Terchov\xE1", className: "input" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Od" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Do" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value), className: "input" }))));
 }
 function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, onClose, onSave }) {
-  var _a;
+  var _a, _b;
   const t = todayISO();
   const sorted = races.slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
   const currentRace = races.find((r) => t >= r.startDate && t <= r.endDate);
@@ -1080,6 +1160,8 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
   const [vendor, setVendor] = useState(isEditing ? editingExpense.vendor || "" : "");
   const [category, setCategory] = useState(isEditing ? editingExpense.category : "phm");
   const [paidFrom, setPaidFrom] = useState(isEditing ? editingExpense.paidFrom || "team" : "team");
+  const [country, setCountry] = useState(isEditing ? editingExpense.country || "SK" : "SK");
+  const [vatRate, setVatRate] = useState(isEditing ? (_b = editingExpense.vatRate) != null ? _b : "23" : CATEGORY_VAT_DEFAULT.SK.phm);
   const [raceId, setRaceId] = useState(isEditing ? editingExpense.raceId : fallbackRaceId);
   const [note, setNote] = useState(isEditing ? editingExpense.note || "" : "");
   const [saving, setSaving] = useState(false);
@@ -1120,6 +1202,10 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
     setSaving(true);
     const id = isEditing ? editingExpense.id : uid();
     const amt = parseFloat(amount);
+    const rate = vatRateNumber(vatRate);
+    const vatBase = Math.round(amt / (1 + rate / 100) * 100) / 100;
+    const vatAmount = Math.round((amt - vatBase) * 100) / 100;
+    const fxRate = await getExchangeRateToEUR(currency, date);
     const expense = {
       id,
       raceId,
@@ -1127,7 +1213,13 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
       amount: amt,
       currency,
       paidFrom,
-      amountEUR: Math.round(amt * (RATES_TO_EUR[currency] || 1) * 100) / 100,
+      country,
+      amountEUR: Math.round(amt * fxRate * 100) / 100,
+      fxRate,
+      fxRateSource: currency === "EUR" ? "n/a" : "frankfurter.dev (ECB)",
+      vatRate,
+      vatBase,
+      vatAmount,
       date,
       vendor: vendor.trim(),
       note: note.trim(),
@@ -1149,20 +1241,33 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
   } })) : /* @__PURE__ */ React.createElement("div", { className: "relative mb-4" }, /* @__PURE__ */ React.createElement("img", { src: imageDataUrl, alt: "Blo\u010Dek", className: "w-full max-h-56 object-cover rounded-xl border border-gray-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => {
     setImageDataUrl(null);
     setOcrState("idle");
-  }, className: "absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 w-7 h-7 flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icon.Close, { size: 14 })), ocrState === "loading" && /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center gap-2 text-white text-sm font-medium" }, "\u23F3 Rozpozn\xE1vam blo\u010Dek...")), ocrState === "error" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-amber-600 text-xs bg-amber-50 rounded-lg px-3 py-2 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Warning, null), " Nepodarilo sa rozpozna\u0165 \xFAdaje, zadaj ich ru\u010Dne."), ocrState === "done" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-green-600 text-xs bg-green-50 rounded-lg px-3 py-2 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Check, null), " \xDAdaje rozpoznan\xE9, skontroluj ich."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Suma" }, /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "0.00", className: "input mono" })), /* @__PURE__ */ React.createElement(Field, { label: "Mena" }, /* @__PURE__ */ React.createElement("select", { value: currency, onChange: (e) => setCurrency(e.target.value), className: "input" }, CURRENCIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))))), /* @__PURE__ */ React.createElement(Field, { label: "D\xE1tum" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Obchod / dod\xE1vate\u013E (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: vendor, onChange: (e) => setVendor(e.target.value), placeholder: "napr. Shell", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Kateg\xF3ria" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, CATEGORIES.map((c) => {
+  }, className: "absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 w-7 h-7 flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icon.Close, { size: 14 })), ocrState === "loading" && /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center gap-2 text-white text-sm font-medium" }, "\u23F3 Rozpozn\xE1vam blo\u010Dek...")), ocrState === "error" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-amber-600 text-xs bg-amber-50 rounded-lg px-3 py-2 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Warning, null), " Nepodarilo sa rozpozna\u0165 \xFAdaje, zadaj ich ru\u010Dne."), ocrState === "done" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-green-600 text-xs bg-green-50 rounded-lg px-3 py-2 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Check, null), " \xDAdaje rozpoznan\xE9, skontroluj ich."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Suma" }, /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "0.00", className: "input mono" })), /* @__PURE__ */ React.createElement(Field, { label: "Mena" }, /* @__PURE__ */ React.createElement("select", { value: currency, onChange: (e) => setCurrency(e.target.value), className: "input" }, CURRENCIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))))), /* @__PURE__ */ React.createElement(Field, { label: "Krajina preteku" }, /* @__PURE__ */ React.createElement("select", { value: country, onChange: (e) => {
+    const newCountry = e.target.value;
+    setCountry(newCountry);
+    if (!isEditing) {
+      const suggested = (CATEGORY_VAT_DEFAULT[newCountry] || CATEGORY_VAT_DEFAULT.SK)[category];
+      if (suggested) setVatRate(suggested);
+    }
+  }, className: "input" }, COUNTRIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c.code, value: c.code }, c.label)))), /* @__PURE__ */ React.createElement(Field, { label: "D\xE1tum" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value), className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Obchod / dod\xE1vate\u013E (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: vendor, onChange: (e) => setVendor(e.target.value), placeholder: "napr. Shell", className: "input" })), /* @__PURE__ */ React.createElement(Field, { label: "Kateg\xF3ria" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, CATEGORIES.map((c) => {
     const active = category === c.id;
     return /* @__PURE__ */ React.createElement(
       "button",
       {
         key: c.id,
-        onClick: () => setCategory(c.id),
+        onClick: () => {
+          setCategory(c.id);
+          if (!isEditing) {
+            const suggested = (CATEGORY_VAT_DEFAULT[country] || CATEGORY_VAT_DEFAULT.SK)[c.id];
+            if (suggested) setVatRate(suggested);
+          }
+        },
         className: "flex flex-col items-center gap-1 rounded-lg py-2.5 border text-xs font-medium transition-colors",
         style: active ? { backgroundColor: c.color + "12", borderColor: c.color, color: c.color } : { borderColor: "#E5E7EB", color: "#4B5563" }
       },
       /* @__PURE__ */ React.createElement(c.Icon, { size: 16 }),
       c.label
     );
-  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
+  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), /* @__PURE__ */ React.createElement(Field, { label: "Sadzba DPH" }, /* @__PURE__ */ React.createElement("select", { value: vatRate, onChange: (e) => setVatRate(e.target.value), className: "input" }, VAT_RATES.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.value, value: r.value }, r.label)))), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
 }
 function StatsScreen({ races, expenses }) {
   const [exportingYear, setExportingYear] = useState(false);
