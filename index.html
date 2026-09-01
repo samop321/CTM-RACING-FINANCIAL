@@ -170,6 +170,13 @@ const CATEGORY_VAT_DEFAULT = {
 function vatRateNumber(value) {
   return parseFloat(value) || 0;
 }
+const COUNTRY_LABEL_ABBR = { SK: "SR", CZ: "\u010CR", PL: "PL", AT: "AT", IT: "IT", FR: "FR", CH: "CH" };
+function guessVatRateValue(percentNum, countryCode) {
+  if (percentNum == null || Number.isNaN(percentNum)) return null;
+  const abbr = COUNTRY_LABEL_ABBR[countryCode];
+  const match = VAT_RATES.find((r) => Math.abs(vatRateNumber(r.value) - percentNum) < 0.05 && (!abbr || r.label.includes(abbr)));
+  return match ? match.value : null;
+}
 const fmtEUR = (n) => new Intl.NumberFormat("sk-SK", { style: "currency", currency: "EUR" }).format(n || 0);
 const fmtMoney = (n, cur) => new Intl.NumberFormat("sk-SK", { style: "currency", currency: cur }).format(n || 0);
 const fmtDate = (iso) => iso ? new Intl.DateTimeFormat("sk-SK", { day: "numeric", month: "long", year: "numeric" }).format(/* @__PURE__ */ new Date(iso + "T00:00:00")) : "";
@@ -240,7 +247,19 @@ async function extractReceiptData(dataUrl) {
   let currency = null;
   if (/Kč|CZK/i.test(text)) currency = "CZK";
   else if (/zł|PLN/i.test(text)) currency = "PLN";
+  else if (/CHF|MWST/i.test(text)) currency = "CHF";
   else if (/€|EUR/i.test(text)) currency = "EUR";
+  let countryGuess = null;
+  if (currency === "CZK") countryGuess = "CZ";
+  else if (currency === "PLN") countryGuess = "PL";
+  else if (currency === "CHF" || /MWST/i.test(text)) countryGuess = "CH";
+  else if (/\bIVA\b/i.test(text)) countryGuess = "IT";
+  else if (/\bTVA\b/i.test(text)) countryGuess = "FR";
+  else if (/\bUSt\b/i.test(text)) countryGuess = "AT";
+  else if (currency === "EUR") countryGuess = "SK";
+  let vatPercentGuess = null;
+  const vatMatch = text.match(/(?:DPH|VAT|MWST|TVA|IVA|USt)[^\d%\n]{0,15}(\d{1,2}(?:[.,]\d)?)\s*%/i) || text.match(/(\d{1,2}(?:[.,]\d)?)\s*%[^\n]{0,15}(?:DPH|VAT|MWST|TVA|IVA|USt)/i);
+  if (vatMatch) vatPercentGuess = parseFloat(vatMatch[1].replace(",", "."));
   let date = null;
   const dateMatch = text.match(/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})/);
   if (dateMatch) {
@@ -249,7 +268,7 @@ async function extractReceiptData(dataUrl) {
     date = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
   const vendor = lines[0] || null;
-  return { amount, currency, date, vendor };
+  return { amount, currency, date, vendor, vatPercentGuess, countryGuess };
 }
 async function kvGet(key) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=eq.${encodeURIComponent(key)}&select=value`, {
@@ -753,140 +772,6 @@ function RaceRow({ race, onClick }) {
   const status = raceStatus(race);
   return /* @__PURE__ */ React.createElement("button", { onClick, className: "w-full text-left bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-base truncate" }, race.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 flex items-center gap-1 mt-0.5" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", race.location, " \xB7 ", fmtDateShort(race.startDate), " \u2013 ", fmtDateShort(race.endDate))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 shrink-0" }, status === "prebieha" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold uppercase text-red-600 bg-red-50 px-2 py-1 rounded" }, "Live"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A")));
 }
-let _cvLoadPromise = null;
-function loadOpenCv() {
-  if (window.cv && window.cv.Mat) return Promise.resolve();
-  if (_cvLoadPromise) return _cvLoadPromise;
-  _cvLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://docs.opencv.org/4.x/opencv.js";
-    script.async = true;
-    script.onload = () => {
-      if (window.cv && window.cv.Mat) resolve();
-      else window.cv["onRuntimeInitialized"] = () => resolve();
-    };
-    script.onerror = () => reject(new Error("OpenCV sa nepodarilo na\u010D\xEDta\u0165"));
-    document.head.appendChild(script);
-  });
-  return _cvLoadPromise;
-}
-async function autoCropReceipt(dataUrl) {
-  try {
-    await loadOpenCv();
-  } catch (e) {
-    return null;
-  }
-  return new Promise((resolve) => {
-    const imgEl = new Image();
-    imgEl.onload = () => {
-      const cv = window.cv;
-      const toDelete = [];
-      try {
-        const srcCanvas = document.createElement("canvas");
-        srcCanvas.width = imgEl.width;
-        srcCanvas.height = imgEl.height;
-        srcCanvas.getContext("2d").drawImage(imgEl, 0, 0);
-        const src = cv.imread(srcCanvas);
-        toDelete.push(src);
-        const scale = Math.min(1, 700 / Math.max(src.cols, src.rows));
-        const small = new cv.Mat();
-        toDelete.push(small);
-        cv.resize(src, small, new cv.Size(Math.round(src.cols * scale), Math.round(src.rows * scale)));
-        const gray = new cv.Mat();
-        toDelete.push(gray);
-        cv.cvtColor(small, gray, cv.COLOR_RGBA2GRAY);
-        const blurred = new cv.Mat();
-        toDelete.push(blurred);
-        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-        const edged = new cv.Mat();
-        toDelete.push(edged);
-        cv.Canny(blurred, edged, 50, 150);
-        const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-        toDelete.push(kernel);
-        const dilated = new cv.Mat();
-        toDelete.push(dilated);
-        cv.dilate(edged, dilated, kernel);
-        const contours = new cv.MatVector();
-        toDelete.push(contours);
-        const hierarchy = new cv.Mat();
-        toDelete.push(hierarchy);
-        cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-        let bestQuad = null, bestArea = 0;
-        for (let i = 0; i < contours.size(); i++) {
-          const cnt = contours.get(i);
-          const peri = cv.arcLength(cnt, true);
-          const approx = new cv.Mat();
-          cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-          if (approx.rows === 4) {
-            const area = cv.contourArea(approx);
-            if (area > bestArea && area > 0.15 * small.cols * small.rows) {
-              bestArea = area;
-              if (bestQuad) bestQuad.delete();
-              bestQuad = approx;
-            } else approx.delete();
-          } else approx.delete();
-          cnt.delete();
-        }
-        if (!bestQuad) {
-          toDelete.forEach((m) => {
-            try {
-              m.delete();
-            } catch (e) {
-            }
-          });
-          resolve(null);
-          return;
-        }
-        const pts = [];
-        for (let i = 0; i < 4; i++) pts.push({ x: bestQuad.intPtr(i, 0)[0] / scale, y: bestQuad.intPtr(i, 0)[1] / scale });
-        bestQuad.delete();
-        pts.sort((a, b) => a.y - b.y);
-        const top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
-        const bottom = pts.slice(2, 4).sort((a, b) => a.x - b.x);
-        const [tl, tr] = top, [bl, br] = bottom;
-        const maxWidth = Math.max(Math.hypot(br.x - bl.x, br.y - bl.y), Math.hypot(tr.x - tl.x, tr.y - tl.y));
-        const maxHeight = Math.max(Math.hypot(tr.x - br.x, tr.y - br.y), Math.hypot(tl.x - bl.x, tl.y - bl.y));
-        if (maxWidth < 40 || maxHeight < 40) {
-          toDelete.forEach((m) => {
-            try {
-              m.delete();
-            } catch (e) {
-            }
-          });
-          resolve(null);
-          return;
-        }
-        const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
-        const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight]);
-        const M = cv.getPerspectiveTransform(srcTri, dstTri);
-        const dst = new cv.Mat();
-        cv.warpPerspective(src, dst, M, new cv.Size(Math.round(maxWidth), Math.round(maxHeight)));
-        const outCanvas = document.createElement("canvas");
-        cv.imshow(outCanvas, dst);
-        const result = outCanvas.toDataURL("image/jpeg", 0.92);
-        toDelete.push(srcTri, dstTri, M, dst);
-        toDelete.forEach((m) => {
-          try {
-            m.delete();
-          } catch (e) {
-          }
-        });
-        resolve(result);
-      } catch (err) {
-        console.warn("autoCropReceipt failed", err);
-        toDelete.forEach((m) => {
-          try {
-            m.delete();
-          } catch (e) {
-          }
-        });
-        resolve(null);
-      }
-    };
-    imgEl.onerror = () => resolve(null);
-    imgEl.src = dataUrl;
-  });
-}
 function processReceiptImageScan(dataUrl) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -981,8 +866,7 @@ async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
     if (!img) continue;
     let scanImg = img;
     try {
-      const cropped = await autoCropReceipt(img);
-      scanImg = await processReceiptImageScan(cropped || img);
+      scanImg = await processReceiptImageScan(img);
     } catch (err) {
     }
     doc.addPage();
@@ -1181,17 +1065,29 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
       })();
     }
   }, []);
+  const [vatAutoDetected, setVatAutoDetected] = useState(false);
   const handleFile = async (file) => {
     if (!file) return;
     const dataUrl = await fileToCompressedBase64(file);
     setImageDataUrl(dataUrl);
     setOcrState("loading");
+    setVatAutoDetected(false);
     try {
       const result = await extractReceiptData(dataUrl);
       if (result.amount) setAmount(String(result.amount));
       if (result.currency && CURRENCIES.includes(result.currency)) setCurrency(result.currency);
       if (result.date) setDate(result.date);
       if (result.vendor) setVendor(result.vendor);
+      const detectedCountry = result.countryGuess && COUNTRIES.some((c) => c.code === result.countryGuess) ? result.countryGuess : country;
+      if (result.countryGuess) setCountry(detectedCountry);
+      const matchedRate = guessVatRateValue(result.vatPercentGuess, detectedCountry);
+      if (matchedRate) {
+        setVatRate(matchedRate);
+        setVatAutoDetected(true);
+      } else {
+        const suggested = (CATEGORY_VAT_DEFAULT[detectedCountry] || CATEGORY_VAT_DEFAULT.SK)[category];
+        if (suggested) setVatRate(suggested);
+      }
       setOcrState("done");
     } catch (err) {
       setOcrState("error");
@@ -1267,7 +1163,10 @@ function AddExpenseModal({ races, defaultRaceId, currentUser, editingExpense, on
       /* @__PURE__ */ React.createElement(c.Icon, { size: 16 }),
       c.label
     );
-  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), /* @__PURE__ */ React.createElement(Field, { label: "Sadzba DPH" }, /* @__PURE__ */ React.createElement("select", { value: vatRate, onChange: (e) => setVatRate(e.target.value), className: "input" }, VAT_RATES.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.value, value: r.value }, r.label)))), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
+  }))), /* @__PURE__ */ React.createElement(Field, { label: "Platen\xE9 z" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("team"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "team" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "T\xEDmov\xE9 peniaze"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPaidFrom("personal"), className: `rounded-xl py-2.5 border text-sm font-medium ${paidFrom === "personal" ? "border-transparent text-white bg-violet-600" : "border-gray-200 text-gray-600"}` }, "Vlastn\xE9 (jednotlivec)"))), /* @__PURE__ */ React.createElement(Field, { label: "Sadzba DPH" }, /* @__PURE__ */ React.createElement("select", { value: vatRate, onChange: (e) => {
+    setVatRate(e.target.value);
+    setVatAutoDetected(false);
+  }, className: "input" }, VAT_RATES.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.value, value: r.value }, r.label))), /* @__PURE__ */ React.createElement("div", { className: `text-xs mt-1.5 flex items-center gap-1.5 ${vatAutoDetected ? "text-green-600" : "text-gray-400"}` }, vatAutoDetected ? /* @__PURE__ */ React.createElement(Icon.Check, { size: 12 }) : /* @__PURE__ */ React.createElement(Icon.Warning, { size: 12 }), vatAutoDetected ? "Rozpoznan\xE9 z blo\u010Dku" : "Nerozpoznan\xE9 z fotky - skontroluj/uprav ru\u010Dne")), /* @__PURE__ */ React.createElement(Field, { label: "Pretek" }, /* @__PURE__ */ React.createElement("select", { value: raceId, onChange: (e) => setRaceId(e.target.value), className: "input" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Vyber pretek"), sorted.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name, " (", fmtDateShort(r.startDate), ")")))), /* @__PURE__ */ React.createElement(Field, { label: "Pozn\xE1mka (volite\u013En\xE9)" }, /* @__PURE__ */ React.createElement("input", { value: note, onChange: (e) => setNote(e.target.value), placeholder: "napr. v\xFDmena pneumatiky", className: "input" })));
 }
 function StatsScreen({ races, expenses }) {
   const [exportingYear, setExportingYear] = useState(false);
