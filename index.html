@@ -893,7 +893,7 @@ function HomeScreen({ races, expenses, currentUser, onOpenRace, onQuickAdd }) {
   return /* @__PURE__ */ React.createElement("div", { className: "px-5 pt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onQuickAdd, className: "w-full bg-violet-600 text-white rounded-xl py-4 flex items-center justify-center gap-2 font-semibold text-base shadow-sm mb-5 active:scale-95 transition-transform" }, /* @__PURE__ */ React.createElement(Icon.Camera, { size: 20 }), " Prida\u0165 blo\u010Dek"), featured ? /* @__PURE__ */ React.createElement("button", { onClick: () => onOpenRace(featured.id), className: "w-full text-left bg-white rounded-xl border border-gray-200 p-5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: `text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded ${current ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}` }, current ? "\u25CF Prebieha teraz" : `O ${daysUntil(featured.startDate)} dn\xED`), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, (featured.eventType || "race") === "training" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold uppercase text-violet-600 bg-violet-50 px-2 py-1 rounded" }, "Tr\xE9ning"), /* @__PURE__ */ React.createElement("span", { className: "text-gray-400" }, "\u203A"))), /* @__PURE__ */ React.createElement("div", { className: "mono text-2xl font-bold tracking-tight mb-1" }, featured.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 text-sm text-gray-500 mb-4" }, /* @__PURE__ */ React.createElement(Icon.Pin, null), " ", featured.location, " \xB7 ", fmtDateShort(featured.startDate), " \u2013 ", fmtDateShort(featured.endDate)), current && /* @__PURE__ */ React.createElement("div", { className: "pt-3 border-t border-gray-100" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-gray-400" }, "Minut\xE9 tento v\xEDkend"), /* @__PURE__ */ React.createElement("span", { className: "mono font-bold text-lg" }, fmtEUR(featuredSpend))), featuredByCategory.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex w-full h-1.5 rounded-full overflow-hidden bg-gray-100" }, featuredByCategory.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.id, style: { width: `${c.sum / featuredSpend * 100}%`, backgroundColor: c.color } }))))) : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-6 text-center mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-center mb-2 text-gray-300" }, /* @__PURE__ */ React.createElement(Icon.Calendar, { size: 28 })), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-500" }, "Zatia\u013E \u017Eiadny napl\xE1novan\xFD pretek")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "mono text-lg font-bold" }, fmtEUR(monthTotal)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-gray-400 mt-0.5" }, "Tento mesiac")), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "mono text-lg font-bold" }, fmtEUR(yearTotal)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-gray-400 mt-0.5" }, "Tento rok")), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "mono text-lg font-bold" }, upcomingCount), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-gray-400 mt-0.5" }, "Nadch\xE1dza"))), myYearCount > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between text-xs text-gray-400 mb-5 px-1" }, /* @__PURE__ */ React.createElement("span", null, "Tvoj podiel tento rok"), /* @__PURE__ */ React.createElement("span", { className: "mono font-semibold text-gray-600" }, fmtEUR(myYearSpend), " \xB7 ", myYearCount, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1" }, "Posledn\xE9 blo\u010Dky"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, expenses.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((e) => /* @__PURE__ */ React.createElement(ExpenseRow, { key: e.id, expense: e })), expenses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-gray-400 text-center py-6" }, "Zatia\u013E \u017Eiadne blo\u010Dky")));
 }
 function ExpenseRow({ expense }) {
-  const cat = CAT_MAP[expense.category];
+  const cat = CAT_MAP[expense.category] || CAT_MAP.ine;
   return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-9 h-9 rounded-lg flex items-center justify-center shrink-0", style: { backgroundColor: cat.color + "1A", color: cat.color } }, /* @__PURE__ */ React.createElement(cat.Icon, { size: 17 })), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium truncate flex items-center gap-1.5" }, expense.vendor || cat.label, expense.paidFrom === "personal" && /* @__PURE__ */ React.createElement("span", { className: "text-xs font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded shrink-0" }, "Osobn\xE9")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 truncate" }, expense.paidFrom === "personal" && expense.paidByPerson && expense.paidByPerson !== expense.addedBy ? `Zaplatil ${expense.paidByPerson} \xB7 pridal ${expense.addedBy}` : expense.addedBy, " \xB7 ", fmtDateShort(expense.date))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtMoney(expense.amount, expense.currency)), expense.currency !== "EUR" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400 mono" }, "\u2248 ", fmtEUR(expense.amountEUR))));
 }
 function normalizeSearch(s) {
@@ -1009,7 +1009,7 @@ async function buildReceiptsPdf(title, subtitle, expenses, races, filename) {
   doc.setFontSize(9);
   const sorted = expenses.slice().sort((a, b) => a.date.localeCompare(b.date));
   for (const e of sorted) {
-    const cat = CAT_MAP[e.category];
+    const cat = CAT_MAP[e.category] || CAT_MAP.ine;
     const line = races.length > 1 ? `${fmtDateShort(e.date)}  \xB7  ${raceName(e.raceId)}  \xB7  ${cat.label}  \xB7  ${e.vendor || "-"}  \xB7  ${e.addedBy}  \xB7  ${fmtMoney(e.amount, e.currency)}` : `${fmtDateShort(e.date)}  \xB7  ${cat.label}  \xB7  ${e.vendor || "-"}  \xB7  ${e.addedBy}  \xB7  ${fmtMoney(e.amount, e.currency)}`;
     if (y > pageH - margin) {
       doc.addPage();
@@ -1107,7 +1107,7 @@ function exportExpensesToExcel(expenses, races, filename) {
   const rows = expenses.map((e) => {
     var _a;
     const race = races.find((r) => r.id === e.raceId);
-    const cat = CAT_MAP[e.category];
+    const cat = CAT_MAP[e.category] || CAT_MAP.ine;
     return {
       D\u00E1tum: e.date,
       Pretek: race ? race.name : "",
@@ -1443,7 +1443,7 @@ function SettlementRow({ settlement, expenses }) {
   const [open, setOpen] = useState(false);
   const items = expenses.filter((e) => settlement.expenseIds.includes(e.id)).sort((a, b) => b.amountEUR - a.amountEUR);
   return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("button", { onClick: () => setOpen(!open), className: "w-full text-left" }, /* @__PURE__ */ React.createElement("div", { className: `bg-white border border-gray-200 p-3 flex items-center justify-between ${open ? "rounded-t-xl" : "rounded-xl"}` }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium" }, settlement.person), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, fmtDate(settlement.settledAt.slice(0, 10)), " \xB7 vyplatil ", settlement.settledBy, " \xB7 ", items.length, " blo\u010Dkov")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "mono font-semibold text-sm" }, fmtEUR(settlement.amountEUR)), /* @__PURE__ */ React.createElement("span", { className: `text-gray-400 transition-transform ${open ? "rotate-90" : ""}` }, "\u203A")))), open && /* @__PURE__ */ React.createElement("div", { className: "bg-gray-50 border border-t-0 border-gray-200 rounded-b-xl px-3 py-3 space-y-2" }, items.map((e) => {
-    const cat = CAT_MAP[e.category];
+    const cat = CAT_MAP[e.category] || CAT_MAP.ine;
     return /* @__PURE__ */ React.createElement("div", { key: e.id, className: "flex items-center justify-between text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1.5 text-gray-600 min-w-0" }, /* @__PURE__ */ React.createElement(cat.Icon, { size: 12 }), /* @__PURE__ */ React.createElement("span", { className: "truncate" }, cat.label, e.vendor ? ` \xB7 ${e.vendor}` : "", " \xB7 ", fmtDateShort(e.date))), /* @__PURE__ */ React.createElement("span", { className: "mono text-gray-500 shrink-0 ml-2" }, fmtMoney(e.amount, e.currency)));
   }), items.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-400" }, "Blo\u010Dky u\u017E nie s\xFA dostupn\xE9 (mohli by\u0165 medzi\u010Dasom zmazan\xE9)")));
 }
@@ -1579,7 +1579,33 @@ function StatsScreen({ races, expenses, isCoordinator, onDataRestored }) {
     }
   )), restoreMsg && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-gray-500 mt-2 text-center" }, restoreMsg)));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("App crashed:", error, info);
+  }
+  render() {
+    var _a;
+    if (this.state.hasError) {
+      return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", textAlign: "center", fontFamily: "system-ui, sans-serif" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: "14px", fontWeight: 700, color: "#7C3AED", letterSpacing: "0.1em", marginBottom: "8px" } }, "CTM RACING TEAM"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "16px", fontWeight: 700, marginBottom: "12px" } }, "Nie\u010Do sa pokazilo"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "13px", color: "#6B7280", marginBottom: "20px", maxWidth: "320px" } }, "Appka narazila na neo\u010Dak\xE1van\xFA chybu. Sk\xFAs ju obnovi\u0165 \u2013 d\xE1ta zost\xE1vaj\xFA bezpe\u010Dne ulo\u017Een\xE9 v datab\xE1ze."), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => window.location.reload(),
+          style: { background: "#7C3AED", color: "white", border: "none", borderRadius: "10px", padding: "12px 24px", fontSize: "14px", fontWeight: 600 }
+        },
+        "Obnovi\u0165 appku"
+      ), /* @__PURE__ */ React.createElement("div", { style: { fontSize: "11px", color: "#9CA3AF", marginTop: "20px", maxWidth: "320px", wordBreak: "break-word" } }, String(((_a = this.state.error) == null ? void 0 : _a.message) || this.state.error || "")));
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(ErrorBoundary, null, /* @__PURE__ */ React.createElement(App, null)));
 
 </script>
 </body>
