@@ -478,6 +478,42 @@ async function migrateToPerRecordStorage() {
     console.warn("migration failed, will retry next load", e);
   }
 }
+function sanitizeRace(r) {
+  const start = typeof (r == null ? void 0 : r.startDate) === "string" && r.startDate.length === 10 ? r.startDate : todayISO();
+  const end = typeof (r == null ? void 0 : r.endDate) === "string" && r.endDate.length === 10 ? r.endDate : start;
+  return __spreadProps(__spreadValues({}, r), {
+    id: (r == null ? void 0 : r.id) || uid(),
+    name: typeof (r == null ? void 0 : r.name) === "string" && r.name ? r.name : "Bez n\xE1zvu",
+    location: typeof (r == null ? void 0 : r.location) === "string" ? r.location : "",
+    startDate: start,
+    endDate: end,
+    eventType: (r == null ? void 0 : r.eventType) === "training" ? "training" : "race"
+  });
+}
+function sanitizeExpense(e) {
+  const amount = typeof (e == null ? void 0 : e.amount) === "number" && !isNaN(e.amount) ? e.amount : 0;
+  const amountEUR = typeof (e == null ? void 0 : e.amountEUR) === "number" && !isNaN(e.amountEUR) ? e.amountEUR : amount;
+  return __spreadProps(__spreadValues({}, e), {
+    id: (e == null ? void 0 : e.id) || uid(),
+    date: typeof (e == null ? void 0 : e.date) === "string" && e.date.length === 10 ? e.date : todayISO(),
+    category: CAT_MAP[e == null ? void 0 : e.category] ? e.category : "ine",
+    currency: CURRENCIES.includes(e == null ? void 0 : e.currency) ? e.currency : "EUR",
+    amount,
+    amountEUR,
+    addedBy: typeof (e == null ? void 0 : e.addedBy) === "string" && e.addedBy ? e.addedBy : "?",
+    createdAt: typeof (e == null ? void 0 : e.createdAt) === "string" && e.createdAt ? e.createdAt : (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+function sanitizeSettlement(s) {
+  return __spreadProps(__spreadValues({}, s), {
+    id: (s == null ? void 0 : s.id) || uid(),
+    person: typeof (s == null ? void 0 : s.person) === "string" && s.person ? s.person : "?",
+    amountEUR: typeof (s == null ? void 0 : s.amountEUR) === "number" && !isNaN(s.amountEUR) ? s.amountEUR : 0,
+    expenseIds: Array.isArray(s == null ? void 0 : s.expenseIds) ? s.expenseIds : [],
+    settledBy: typeof (s == null ? void 0 : s.settledBy) === "string" && s.settledBy ? s.settledBy : "?",
+    settledAt: typeof (s == null ? void 0 : s.settledAt) === "string" && s.settledAt ? s.settledAt : (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [gateUnlocked, setGateUnlocked] = useState(false);
@@ -557,9 +593,9 @@ function App() {
       loadRecordsList("ctm-expense-item:", "ctm-cache:expenses-list"),
       loadRecordsList("ctm-settlement-item:", "ctm-cache:settlements-list")
     ]);
-    setRaces(r);
-    setExpenses(e);
-    setSettlements(s);
+    setRaces(r.map(sanitizeRace));
+    setExpenses(e.map(sanitizeExpense));
+    setSettlements(s.map(sanitizeSettlement));
     setLoading(false);
   }, []);
   useEffect(() => {
@@ -584,7 +620,7 @@ function App() {
     }
   };
   const addRace = async (race) => {
-    const newRace = __spreadProps(__spreadValues({}, race), { id: uid() });
+    const newRace = sanitizeRace(__spreadProps(__spreadValues({}, race), { id: uid() }));
     const next = [...races, newRace].sort((a, b) => a.startDate.localeCompare(b.startDate));
     setRaces(next);
     const r = await saveShared("ctm-race-item:" + newRace.id, newRace);
@@ -611,16 +647,18 @@ function App() {
     showToast("Pretek zmazan\xFD");
   };
   const addExpense = async (expense) => {
-    const next = [...expenses, expense];
+    const clean = sanitizeExpense(expense);
+    const next = [...expenses, clean];
     setExpenses(next);
-    const r = await saveShared("ctm-expense-item:" + expense.id, expense);
+    const r = await saveShared("ctm-expense-item:" + clean.id, clean);
     showToast(r.queued ? "Blo\u010Dek ulo\u017Een\xFD (offline, zosynchronizuje sa)" : "Blo\u010Dek ulo\u017Een\xFD");
     refreshQueueCount();
   };
   const updateExpense = async (expense) => {
-    const next = expenses.map((e) => e.id === expense.id ? expense : e);
+    const clean = sanitizeExpense(expense);
+    const next = expenses.map((e) => e.id === clean.id ? clean : e);
     setExpenses(next);
-    const r = await saveShared("ctm-expense-item:" + expense.id, expense);
+    const r = await saveShared("ctm-expense-item:" + clean.id, clean);
     showToast(r.queued ? "Zmeny ulo\u017Een\xE9 (offline, zosynchronizuje sa)" : "Zmeny ulo\u017Een\xE9");
     refreshQueueCount();
   };
