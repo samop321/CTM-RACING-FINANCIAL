@@ -190,8 +190,19 @@ function guessVatRateValue(percentNum, countryCode) {
 }
 const fmtEUR = (n) => new Intl.NumberFormat("sk-SK", { style: "currency", currency: "EUR" }).format(n || 0);
 const fmtMoney = (n, cur) => new Intl.NumberFormat("sk-SK", { style: "currency", currency: cur }).format(n || 0);
-const fmtDate = (iso) => iso ? new Intl.DateTimeFormat("sk-SK", { day: "numeric", month: "long", year: "numeric" }).format(/* @__PURE__ */ new Date(iso + "T00:00:00")) : "";
-const fmtDateShort = (iso) => iso ? new Intl.DateTimeFormat("sk-SK", { day: "numeric", month: "short" }).format(/* @__PURE__ */ new Date(iso + "T00:00:00")) : "";
+function safeDate(iso) {
+  if (!iso) return null;
+  const d = /* @__PURE__ */ new Date(iso + "T00:00:00");
+  return isNaN(d.getTime()) ? null : d;
+}
+const fmtDate = (iso) => {
+  const d = safeDate(iso);
+  return d ? new Intl.DateTimeFormat("sk-SK", { day: "numeric", month: "long", year: "numeric" }).format(d) : "-";
+};
+const fmtDateShort = (iso) => {
+  const d = safeDate(iso);
+  return d ? new Intl.DateTimeFormat("sk-SK", { day: "numeric", month: "short" }).format(d) : "-";
+};
 const todayISO = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const raceStatus = (r) => {
@@ -882,7 +893,10 @@ function HomeScreen({ races, expenses, currentUser, onOpenRace, onQuickAdd }) {
   const featuredExpenses = featured ? expenses.filter((e) => e.raceId === featured.id) : [];
   const featuredSpend = featuredExpenses.reduce((s, e) => s + e.amountEUR, 0);
   const featuredByCategory = CATEGORIES.map((c) => __spreadProps(__spreadValues({}, c), { sum: featuredExpenses.filter((e) => e.category === c.id).reduce((s, e) => s + e.amountEUR, 0) })).filter((c) => c.sum > 0);
-  const daysUntil = (iso) => Math.round((/* @__PURE__ */ new Date(iso + "T00:00:00") - /* @__PURE__ */ new Date(t + "T00:00:00")) / 864e5);
+  const daysUntil = (iso) => {
+    const d = safeDate(iso);
+    return d ? Math.round((d - /* @__PURE__ */ new Date(t + "T00:00:00")) / 864e5) : 0;
+  };
   const monthPrefix = t.slice(0, 7);
   const yearPrefix = t.slice(0, 4);
   const monthTotal = expenses.filter((e) => e.date.startsWith(monthPrefix)).reduce((s, e) => s + e.amountEUR, 0);
